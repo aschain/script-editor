@@ -178,7 +178,7 @@ public class TextEditor extends JFrame implements ActionListener,
 			openMacroFunctions, decreaseFontSize, increaseFontSize, chooseFontSize,
 			chooseTabSize, gitGrep, openInGitweb, replaceTabsWithSpaces,
 			replaceSpacesWithTabs, toggleWhiteSpaceLabeling, zapGremlins,
-			savePreferences;
+			savePreferences, installMacro;
 	private RecentFilesMenuItem openRecent;
 	private JMenu gitMenu, tabsMenu, fontSizeMenu, tabSizeMenu, toolsMenu,
 			runMenu, whiteSpaceMenu;
@@ -502,6 +502,9 @@ public class TextEditor extends JFrame implements ActionListener,
 		compile.setMnemonic(KeyEvent.VK_C);
 		autoSave = new JCheckBoxMenuItem("Auto-save before compiling");
 		runMenu.add(autoSave);
+
+		installMacro = addToMenu(runMenu, "Install Macro", KeyEvent.VK_I, ctrl);
+		installMacro.setMnemonic(KeyEvent.VK_I);
 
 		runMenu.addSeparator();
 		nextError = addToMenu(runMenu, "Next Error", KeyEvent.VK_F4, 0);
@@ -1051,6 +1054,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		else if (source == compileAndRun) runText();
 		else if (source == compile) compile();
 		else if (source == runSelection) runText(true);
+		else if (source == installMacro) installMacro();
 		else if (source == nextError) new Thread() {
 
 			@Override
@@ -1606,8 +1610,9 @@ public class TextEditor extends JFrame implements ActionListener,
 		sortImports.setVisible(isJava);
 		openSourceForMenuItem.setVisible(isJava);
 
-		final boolean isMacro =
-			language != null && language.getLanguageName().equals("ImageJ Macro");
+		final boolean isMacro = 
+			language != null && (language.getLanguageName().equals("IJ1 Macro") || language.getLanguageName().equals("ImageJ Macro"));
+		installMacro.setVisible(isMacro);
 		openMacroFunctions.setVisible(isMacro);
 		openSourceForClass.setVisible(!isMacro);
 
@@ -2098,6 +2103,10 @@ public class TextEditor extends JFrame implements ActionListener,
 		if (getTab().showingErrors) {
 			errorHandler.scrollToVisible(compileStartOffset);
 		}
+	}
+	
+	public void installMacro() {
+		new MacroFunctions(this).installMacro(getTitle(), getEditorPane().getText());
 	}
 
 	public boolean nextError(final boolean forward) {
