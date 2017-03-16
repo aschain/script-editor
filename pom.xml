@@ -14,7 +14,7 @@
 
 	<name>SciJava Script Editor</name>
 	<description>Script Editor and Interpreter for SciJava script languages.</description>
-	<url>http://scijava.org/</url>
+	<url>https://github.com/scijava/script-editor</url>
 	<inceptionYear>2009</inceptionYear>
 	<organization>
 		<name>SciJava</name>
@@ -133,8 +133,8 @@
 		<url>http://github.com/scijava/script-editor/issues</url>
 	</issueManagement>
 	<ciManagement>
-		<system>Jenkins</system>
-		<url>http://jenkins.imagej.net/job/script-editor/</url>
+		<system>Travis CI</system>
+		<url>https://travis-ci.org/scijava/script-editor</url>
 	</ciManagement>
 
 	<properties>
