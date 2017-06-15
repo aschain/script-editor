@@ -349,6 +349,7 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 	 */
 	public void setFileName(final String baseName) {
 		fallBackBaseName = baseName;
+		log.debug("AJ1-"+fallBackBaseName);
 		if (currentLanguage == null) {
 			return;
 		}
@@ -361,6 +362,7 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 				break;
 			}
 		}
+		log.debug("AJ2-"+fallBackBaseName);
 
 		if (currentLanguage.getLanguageName().equals("Java")) {
 			new TokenFunctions(this).setClassName(fallBackBaseName);
@@ -505,6 +507,8 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 			// See: http://fiji.sc/bugzilla/show_bug.cgi?id=1181
 			log.debug(exc);
 		}
+
+		log.debug("AJ3-"+styleName);
 
 		// Add header text
 		if (header != null) {

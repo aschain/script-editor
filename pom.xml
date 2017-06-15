@@ -5,12 +5,12 @@
 	<parent>
 		<groupId>org.scijava</groupId>
 		<artifactId>pom-scijava</artifactId>
-		<version>13.2.0</version>
+		<version>16.1.0</version>
 		<relativePath />
 	</parent>
 
 	<artifactId>script-editor</artifactId>
-	<version>0.1.4-SNAPSHOT</version>
+	<version>0.1.5-SNAPSHOT</version>
 
 	<name>SciJava Script Editor</name>
 	<description>Script Editor and Interpreter for SciJava script languages.</description>
@@ -195,6 +195,18 @@ Genetics, and others.</license.copyrightOwners>
 			<groupId>net.imagej</groupId>
 			<artifactId>ij</artifactId>
 			<version>RELEASE</version>
+		</dependency>
+		<!-- imagej1 macro-->
+		
+		<dependency>
+			<groupId>org.scijava</groupId>
+			<artifactId>scijava-ui-swing</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.scijava</groupId>
+			<artifactId>scripting-groovy</artifactId>
+			<scope>test</scope>
 		</dependency>
 	</dependencies>
 </project>
