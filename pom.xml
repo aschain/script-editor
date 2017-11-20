@@ -197,7 +197,6 @@ Genetics, and others.</license.copyrightOwners>
 		<dependency>
 			<groupId>net.imagej</groupId>
 			<artifactId>ij</artifactId>
-			<version>RELEASE</version>
 		</dependency>
 		<!-- imagej1 macro-->
 		
