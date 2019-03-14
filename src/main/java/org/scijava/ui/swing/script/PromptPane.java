@@ -47,6 +47,7 @@ import org.scijava.Context;
 import org.scijava.script.ScriptREPL;
 import org.scijava.thread.ThreadService;
 import org.scijava.util.ClassUtils;
+import org.scijava.util.Types;
 import org.scijava.widget.UIComponent;
 
 /**
@@ -168,20 +169,13 @@ public abstract class PromptPane implements UIComponent<JTextArea> {
 		textArea.setText("");
 		executing = true;
 
-		threadService().run(new Runnable() {
-
-			@Override
-			public void run() {
-				final boolean result = repl.evaluate(text);
-				threadService().queue(new Runnable() {
-					@Override
-					public void run() {
-						executing = false;
-						if (!result) quit();
-						vars.update();
-					}
-				});
-			}
+		threadService().run(() -> {
+			final boolean result = repl.evaluate(text);
+			threadService().queue(() -> {
+				executing = false;
+				if (!result) quit();
+				vars.update();
+			});
 		});
 	}
 
@@ -189,7 +183,7 @@ public abstract class PromptPane implements UIComponent<JTextArea> {
 		// HACK: Get the SciJava context from the REPL.
 		// This can be fixed if/when the REPL offers a getter for it.
 		final Context ctx = (Context) ClassUtils.getValue(//
-			ClassUtils.getField(repl.getClass(), "context"), repl);
+			Types.field(repl.getClass(), "context"), repl);
 		return ctx.service(ThreadService.class);
 	}
 
