@@ -399,7 +399,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		removeUnusedImports.setMnemonic(KeyEvent.VK_U);
 		sortImports = addToMenu(edit, "Sort imports", 0, 0);
 		sortImports.setMnemonic(KeyEvent.VK_S);
-		respectAutoImports = prefService.getBoolean(AUTO_IMPORT_PREFS, false);
+		respectAutoImports = prefService.getBoolean(null, AUTO_IMPORT_PREFS, false);
 		autoImport =
 			new JCheckBoxMenuItem("Auto-import (deprecated)", respectAutoImports);
 		autoImport.addItemListener(new ItemListener() {
@@ -407,7 +407,7 @@ public class TextEditor extends JFrame implements ActionListener,
 			@Override
 			public void itemStateChanged(final ItemEvent e) {
 				respectAutoImports = e.getStateChange() == ItemEvent.SELECTED;
-				prefService.put(AUTO_IMPORT_PREFS, respectAutoImports);
+				prefService.put(null, AUTO_IMPORT_PREFS, respectAutoImports);
 			}
 		});
 		edit.add(autoImport);
@@ -731,8 +731,8 @@ public class TextEditor extends JFrame implements ActionListener,
 			dim.height = DEFAULT_WINDOW_HEIGHT;
 		}
 
-		setPreferredSize(new Dimension(prefService.getInt(WINDOW_WIDTH, dim.width),
-			prefService.getInt(WINDOW_HEIGHT, dim.height)));
+		setPreferredSize(new Dimension(prefService.getInt(null, WINDOW_WIDTH, dim.width),
+			prefService.getInt(null, WINDOW_HEIGHT, dim.height)));
 	}
 
 	/**
@@ -745,8 +745,8 @@ public class TextEditor extends JFrame implements ActionListener,
 	 */
 	public void saveWindowSizeToPrefs() {
 		final Dimension dim = getSize();
-		prefService.put(WINDOW_HEIGHT, dim.height);
-		prefService.put(WINDOW_WIDTH, dim.width);
+		prefService.put(null, WINDOW_HEIGHT, dim.height);
+		prefService.put(null, WINDOW_WIDTH, dim.width);
 	}
 
 	final public RSyntaxTextArea getTextArea() {
@@ -2383,7 +2383,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		context.inject(module);
 
 		// use the currently selected language to execute the script
-		module.setLanguage(language);
+		module.getInfo().setLanguage(language);
 
 		// map stdout and stderr to the UI
 		module.setOutputWriter(output);
