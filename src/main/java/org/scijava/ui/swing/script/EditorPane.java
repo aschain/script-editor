@@ -82,6 +82,7 @@ import org.scijava.util.FileUtils;
  * @author Johannes Schindelin
  * @author Jonathan Hale
  */
+@SuppressWarnings("serial")
 public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 
 	private String fallBackBaseName;

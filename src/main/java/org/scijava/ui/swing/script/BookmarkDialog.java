@@ -53,6 +53,7 @@ import javax.swing.ListSelectionModel;
  *
  * @author Johannes Schindelin
  */
+@SuppressWarnings("serial")
 public class BookmarkDialog extends JDialog implements ActionListener {
 
 	JList<Bookmark> list;
