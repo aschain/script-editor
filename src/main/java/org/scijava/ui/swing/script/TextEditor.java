@@ -177,6 +177,7 @@ import org.scijava.widget.FileWidget;
  * @author Johannes Schindelin
  * @author Jonathan Hale
  */
+@SuppressWarnings("serial")
 public class TextEditor extends JFrame implements ActionListener,
 	ChangeListener, CloseConfirmable, DocumentListener
 {

@@ -53,10 +53,11 @@ import org.scijava.script.ScriptService;
  *
  * @author Curtis Rueden
  */
+@SuppressWarnings("serial")
 public class VarsPane extends JPanel {
 
 	private final ScriptREPL repl;
-	private final JComboBox langBox;
+	private final JComboBox<ScriptLanguage> langBox;
 	private final VarsTableModel varsTableModel;
 
 	public VarsPane(final Context context, final ScriptREPL repl) {
@@ -67,7 +68,7 @@ public class VarsPane extends JPanel {
 		final ScriptService scriptService = context.service(ScriptService.class);
 		final List<ScriptLanguage> langList = scriptService.getLanguages();
 		final ScriptLanguage[] langs = langList.toArray(new ScriptLanguage[0]);
-		langBox = new JComboBox(langs);
+		langBox = new JComboBox<ScriptLanguage>(langs);
 		langBox.setMaximumRowCount(25);
 		langBox.addActionListener(new ActionListener() {
 

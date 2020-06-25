@@ -64,6 +64,7 @@ import org.scijava.ui.swing.script.TextEditor.Executer;
  *
  * @author Jonathan Hale
  */
+@SuppressWarnings("serial")
 public class TextEditorTab extends JSplitPane {
 
 	private static final String DOWN_ARROW = "\u25BC";

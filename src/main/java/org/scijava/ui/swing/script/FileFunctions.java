@@ -97,6 +97,7 @@ public class FileFunctions {
 			copyTo(jar.getInputStream(entry), destination);
 			result.add(destination);
 		}
+		jar.close();
 		return result;
 	}
 
@@ -197,7 +198,7 @@ public class FileFunctions {
 		}
 		if (paths.size() == 1) return new File(workspace, paths.get(0))
 			.getAbsolutePath();
-		final String[] names = paths.toArray(new String[paths.size()]);
+		//final String[] names = paths.toArray(new String[paths.size()]);
 		final JFileChooser chooser = new JFileChooser(workspace);
 		chooser.setDialogTitle("Choose path");
 		if (chooser.showOpenDialog(parent) != JFileChooser.APPROVE_OPTION) return null;
@@ -274,6 +275,7 @@ public class FileFunctions {
 			try {
 				final JarFile jar = new JarFile(jarURL);
 				final Enumeration<JarEntry> e = jar.entries();
+				jar.close();
 				while (e.hasMoreElements()) {
 					final JarEntry entry = e.nextElement();
 					if (entry.getName().startsWith(prefix)) result.add(entry.getName()

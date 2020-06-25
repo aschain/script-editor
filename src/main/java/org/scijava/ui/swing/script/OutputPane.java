@@ -42,6 +42,7 @@ import org.scijava.log.LogService;
  *
  * @author Johannes Schindelin
  */
+@SuppressWarnings("serial")
 public class OutputPane extends JTextArea {
 
 	private final LogService log;

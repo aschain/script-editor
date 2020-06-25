@@ -46,6 +46,7 @@ import org.scijava.script.ScriptService;
  * @author Curtis Rueden
  * @author Johannes Schindelin
  */
+@SuppressWarnings("serial")
 public class InterpreterWindow extends JFrame {
 
 	private final InterpreterPane pane;

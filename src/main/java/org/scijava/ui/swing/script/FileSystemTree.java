@@ -72,6 +72,7 @@ import org.scijava.log.Logger;
  * @author Albert Cardona
  *
  */
+@SuppressWarnings("serial")
 public class FileSystemTree extends JTree
 {	
 	static private String withSlash(String path) {

@@ -56,6 +56,7 @@ import org.fife.ui.rtextarea.SearchEngine;
  *
  * @author Johannes Schindelin
  */
+@SuppressWarnings("serial")
 public class FindAndReplaceDialog extends JDialog implements ActionListener {
 
 	TextEditor textEditor;
@@ -135,6 +136,7 @@ public class FindAndReplaceDialog extends JDialog implements ActionListener {
 		return textEditor.getTextArea();
 	}
 
+	@SuppressWarnings("deprecation")
 	@Override
 	public void show(final boolean replace) {
 		setTitle(replace ? "Replace" : "Find");
