@@ -480,7 +480,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		autoSave = new JCheckBoxMenuItem("Auto-save Before Compiling");
 		runMenu.add(autoSave);
 
-		installMacro = addToMenu(runMenu, "Install Macro", KeyEvent.VK_I, ctrl);
+		installMacro = addToMenu(runMenu, "Install Macro", 0, 0);
 		installMacro.setMnemonic(KeyEvent.VK_I);
 
 		runMenu.addSeparator();
