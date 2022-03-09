@@ -236,6 +236,7 @@ public class TextEditor extends JFrame implements ActionListener,
 			openSourceForClass,
 			//openSourceForMenuItem, // this never had an actionListener!??
 			openMacroFunctions, decreaseFontSize, increaseFontSize, chooseFontSize,
+			installMacro,
 			chooseTabSize, gitGrep, replaceTabsWithSpaces,
 			replaceSpacesWithTabs, zapGremlins,openClassOrPackageHelp;
 	private RecentFilesMenuItem openRecent;
@@ -478,6 +479,9 @@ public class TextEditor extends JFrame implements ActionListener,
 		compile.setMnemonic(KeyEvent.VK_C);
 		autoSave = new JCheckBoxMenuItem("Auto-save Before Compiling");
 		runMenu.add(autoSave);
+
+		installMacro = addToMenu(runMenu, "Install Macro", KeyEvent.VK_I, ctrl);
+		installMacro.setMnemonic(KeyEvent.VK_I);
 
 		runMenu.addSeparator();
 		nextError = addToMenu(runMenu, "Next Error", KeyEvent.VK_F4, 0);
@@ -1656,6 +1660,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		else if (source == compileAndRun) runText();
 		else if (source == compile) compile();
 		else if (source == runSelection) runText(true);
+		else if (source == installMacro) installMacro();
 		else if (source == nextError) {
 			if (isJava(getEditorPane().getCurrentLanguage()))
 				new Thread(() -> nextError(true)).start();
@@ -2393,28 +2398,28 @@ public class TextEditor extends JFrame implements ActionListener,
 		runMenu.setEnabled(isRunnable);
 		compileAndRun.setText(isCompileable ? "Compile and Run" : "Run");
 		compileAndRun.setEnabled(isRunnable);
-			runSelection.setEnabled(isRunnable && !isCompileable);
-			compile.setEnabled(isCompileable);
-			autoSave.setEnabled(isCompileable);
-			makeJar.setEnabled(isCompileable);
-			makeJarWithSource.setEnabled(isCompileable);
-	
-			final boolean isJava =
-				language != null && language.getLanguageName().equals("Java");
-			addImport.setEnabled(isJava);
-			removeUnusedImports.setEnabled(isJava);
-			sortImports.setEnabled(isJava);
-			//openSourceForMenuItem.setEnabled(isJava);
-	
-			final boolean isMacro =
-				language != null && language.getLanguageName().equals("ImageJ Macro");
-			openMacroFunctions.setEnabled(isMacro);
-			openSourceForClass.setEnabled(!isMacro);
-	
-			openHelp.setEnabled(!isMacro && isRunnable);
-			openHelpWithoutFrames.setEnabled(!isMacro && isRunnable);
-			nextError.setEnabled(!isMacro && isRunnable);
-			previousError.setEnabled(!isMacro && isRunnable);
+		runSelection.setEnabled(isRunnable && !isCompileable);
+		compile.setEnabled(isCompileable);
+		autoSave.setEnabled(isCompileable);
+		makeJar.setEnabled(isCompileable);
+		makeJarWithSource.setEnabled(isCompileable);
+
+		final boolean isJava =
+			language != null && language.getLanguageName().equals("Java");
+		addImport.setEnabled(isJava);
+		removeUnusedImports.setEnabled(isJava);
+		sortImports.setEnabled(isJava);
+		//openSourceForMenuItem.setEnabled(isJava);
+
+		final boolean isMacro =
+			language != null && (language.getLanguageName().equals("IJ1 Macro") || language.getLanguageName().equals("ImageJ Macro"));
+		openMacroFunctions.setEnabled(isMacro);
+		openSourceForClass.setEnabled(!isMacro);
+
+		openHelp.setEnabled(!isMacro && isRunnable);
+		openHelpWithoutFrames.setEnabled(!isMacro && isRunnable);
+		nextError.setEnabled(!isMacro && isRunnable);
+		previousError.setEnabled(!isMacro && isRunnable);
 
 		final boolean isInGit = getEditorPane().getGitDirectory() != null;
 		gitMenu.setVisible(isInGit);
@@ -3030,6 +3035,10 @@ public class TextEditor extends JFrame implements ActionListener,
 		if (getTab().showingErrors) {
 			errorHandler.scrollToVisible(compileStartOffset);
 		}
+	}
+	
+	public void installMacro() {
+		new MacroFunctions(this).installMacro(getTitle(), getEditorPane().getText());
 	}
 
 	public boolean nextError(final boolean forward) {

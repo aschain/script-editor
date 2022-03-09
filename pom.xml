@@ -189,6 +189,14 @@
 			<artifactId>parsington</artifactId>
 			<scope>test</scope>
 		</dependency>
+		
+		<!-- For imagej1 macro installation -->
+		<dependency>
+			<groupId>net.imagej</groupId>
+			<artifactId>ij</artifactId>
+		</dependency>
+		<!-- imagej1 macro-->
+		
 		<dependency>
 			<groupId>org.scijava</groupId>
 			<artifactId>scijava-ui-swing</artifactId>
