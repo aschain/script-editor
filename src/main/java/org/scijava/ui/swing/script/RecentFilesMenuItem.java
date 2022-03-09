@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -48,7 +48,6 @@ import org.scijava.prefs.PrefService;
  * @author Johannes Schindelin
  * @author Jonathan Hale
  */
-@SuppressWarnings("serial")
 public class RecentFilesMenuItem extends JMenu {
 
 	/** Constant for maximum amount of recent files shown in recent files menu */

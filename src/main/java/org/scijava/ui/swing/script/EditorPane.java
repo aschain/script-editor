@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -29,11 +29,14 @@
 
 package org.scijava.ui.swing.script;
 
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.event.ActionEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -42,36 +45,54 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.net.URL;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+import javax.swing.Action;
+import javax.swing.ButtonGroup;
+import javax.swing.JMenu;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPopupMenu;
+import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JScrollPane;
 import javax.swing.JViewport;
+import javax.swing.SwingUtilities;
 import javax.swing.ToolTipManager;
+import javax.swing.UIManager;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.event.HyperlinkEvent;
+import javax.swing.event.HyperlinkListener;
 import javax.swing.text.BadLocationException;
-import javax.swing.text.DefaultEditorKit;
 
 import org.fife.rsta.ac.LanguageSupport;
+import org.fife.rsta.ac.LanguageSupportFactory;
 import org.fife.ui.rsyntaxtextarea.RSyntaxDocument;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.Style;
 import org.fife.ui.rsyntaxtextarea.SyntaxScheme;
+import org.fife.ui.rsyntaxtextarea.Theme;
+import org.fife.ui.rsyntaxtextarea.parser.TaskTagParser;
 import org.fife.ui.rtextarea.Gutter;
 import org.fife.ui.rtextarea.GutterIconInfo;
-import org.fife.ui.rtextarea.IconGroup;
 import org.fife.ui.rtextarea.RTextArea;
 import org.fife.ui.rtextarea.RTextScrollPane;
 import org.fife.ui.rtextarea.RecordableTextAction;
+import org.fife.ui.rtextarea.SearchContext;
+import org.fife.ui.rtextarea.SearchEngine;
 import org.scijava.Context;
 import org.scijava.log.LogService;
+import org.scijava.platform.PlatformService;
 import org.scijava.plugin.Parameter;
 import org.scijava.prefs.PrefService;
 import org.scijava.script.ScriptHeaderService;
 import org.scijava.script.ScriptLanguage;
 import org.scijava.script.ScriptService;
-import org.scijava.ui.swing.script.autocompletion.JythonAutoCompletion;
 import org.scijava.util.FileUtils;
 
 /**
@@ -81,7 +102,6 @@ import org.scijava.util.FileUtils;
  * @author Johannes Schindelin
  * @author Jonathan Hale
  */
-@SuppressWarnings("serial")
 public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 
 	private String fallBackBaseName;
@@ -90,11 +110,18 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 	private long fileLastModified;
 	private ScriptLanguage currentLanguage;
 	private Gutter gutter;
-	private IconGroup iconGroup;
 	private int modifyCount;
 
 	private boolean undoInProgress;
 	private boolean redoInProgress;
+	private boolean autoCompletionEnabled;
+	private boolean autoCompletionJavaFallback;
+	private boolean autoCompletionWithoutKey;
+	private String supportStatus;
+	private final ErrorParser errorHighlighter;
+	private final JMenu noneLangSyntaxMenu;
+	private final EditorPaneActions actions;
+
 
 	@Parameter
 	Context context;
@@ -107,27 +134,187 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 	@Parameter
 	private PrefService prefService;
 	@Parameter
+	private PlatformService platformService;
+	@Parameter
 	private LogService log;
-	
-	private JythonAutoCompletion autoCompletionProxy;
 
 	/**
 	 * Constructor.
 	 */
 	public EditorPane() {
-		setLineWrap(false);
-		setTabSize(8);
 
-		getActionMap()
-			.put(DefaultEditorKit.nextWordAction, wordMovement(+1, false));
-		getActionMap().put(DefaultEditorKit.selectionNextWordAction,
-			wordMovement(+1, true));
-		getActionMap().put(DefaultEditorKit.previousWordAction,
-			wordMovement(-1, false));
-		getActionMap().put(DefaultEditorKit.selectionPreviousWordAction,
-			wordMovement(-1, true));
+		errorHighlighter= new ErrorParser(this);
+		actions = new EditorPaneActions(this);
+
+		// set sensible defaults
+		setAntiAliasingEnabled(true);
+		setAutoIndentEnabled(true);
+		setBracketMatchingEnabled(true);
+		setCloseCurlyBraces(true);
+		setCloseMarkupTags(true);
+		setCodeFoldingEnabled(true);
+		setShowMatchedBracketPopup(true);
+		setClearWhitespaceLinesEnabled(false); // most folks wont't want this set?
+		// If a URL exists in commentaries this allows opening it using ctrl+click 
+		setHyperlinksEnabled(true);
+		addHyperlinkListener(new HyperlinkListener() {
+
+			@Override
+			public void hyperlinkUpdate(final HyperlinkEvent hle) {
+				if (HyperlinkEvent.EventType.ACTIVATED.equals(hle.getEventType())) {
+					try {
+						platformService.open(hle.getURL());
+					}
+					catch (final IOException exc) {
+						//ignored
+					}
+				}
+			}
+		});
+		// Add support for TODO, FIXME, HACK
+		addParser(new TaskTagParser());
+		// load preferences
+		loadPreferences();
+
+		// Register recordable actions
+		getActionMap().put(EditorPaneActions.nextWordAction, wordMovement("Next-Word-Action", +1, false));
+		getActionMap().put(EditorPaneActions.selectionNextWordAction, wordMovement("Next-Word-Select-Action", +1, true));
+		getActionMap().put(EditorPaneActions.previousWordAction, wordMovement("Prev-Word-Action", -1, false));
+		getActionMap().put(EditorPaneActions.selectionPreviousWordAction,
+				wordMovement("Prev-Word-Select-Action", -1, true));
+
+		noneLangSyntaxMenu = geSyntaxForNoneLang();
+		adjustPopupMenu();
+
 		ToolTipManager.sharedInstance().registerComponent(this);
 		getDocument().addDocumentListener(this);
+		addMouseListener(new MouseAdapter() {
+
+			SearchContext context;
+
+			@Override
+			public void mousePressed(final MouseEvent me) {
+
+				// 2022.02 TF: 'Mark All' occurrences is quite awkward. What is
+				// marked is language-specific and the defaults are restricted
+				// to certain identifiers. We'll hack things so that it works
+				// for any selection by double-click. See
+				// https://github.com/bobbylight/RSyntaxTextArea/issues/88
+				if (getMarkOccurrences() && 2 == me.getClickCount()) {
+
+					// Do nothing if getMarkOccurrences() is unset or no valid
+					// selection exists (we'll skip white space selection)
+					final String str = getSelectedText();
+					if (str == null || str.trim().isEmpty()) return;
+
+					if (context != null && str.equals(context.getSearchFor())) {
+						// Selection is the previously 'marked all' scope. Clear it
+						SearchEngine.markAll(EditorPane.this, new SearchContext());
+						context = null;
+					} else {
+						// Use SearchEngine for 'mark all'
+						final Color stashedColor = getMarkAllHighlightColor();
+						setMarkAllHighlightColor(getMarkOccurrencesColor());
+						context = new SearchContext(str, true);
+						context.setMarkAll(true);
+						context.setWholeWord(true);
+						SearchEngine.markAll(EditorPane.this, context);
+						setMarkAllHighlightColor(stashedColor);
+					}
+				}
+			}
+		});
+	}
+
+	@Override
+	protected void appendFoldingMenu(JPopupMenu popup) {
+		// We are overriding the entire foldingMenu completely so that we can include
+		// our shortcuts in the menu items. These commands are not listed on the
+		// menubar, so this is the only access point in the GUI for these
+		// popup.addSeparator();
+		popup.add(getMenuItem("Select Line", EditorPaneActions.selectLineAction));
+		popup.add(getMenuItem("Select Paragraph", EditorPaneActions.selectParagraphAction));
+		TextEditor.addPopupMenuSeparator(popup, "Code Folding:");
+		popup.add(getMenuItem("Collapse Fold", EditorPaneActions.rstaCollapseFoldAction));
+		popup.add(getMenuItem("Expand Fold", EditorPaneActions.rstaExpandFoldAction));
+		popup.add(getMenuItem("Toggle Current Fold", EditorPaneActions.rstaToggleCurrentFoldAction));
+		// popup.addSeparator();
+		popup.add(getMenuItem("Collapse All Folds", EditorPaneActions.rstaCollapseAllFoldsAction));
+		popup.add(getMenuItem("Expand All Folds", EditorPaneActions.rstaExpandAllFoldsAction));
+		// popup.addSeparator();
+		popup.add(getMenuItem("Collapse All Comments", EditorPaneActions.rstaCollapseAllCommentFoldsAction));
+	}
+
+	private void adjustPopupMenu() {
+		final JPopupMenu popup = super.getPopupMenu();
+		// See #appendFoldingMenu()
+		TextEditor.addPopupMenuSeparator(popup, "Code Formatting:");
+		popup.add(getMenuItem("Indent Right", EditorPaneActions.epaIncreaseIndentAction));
+		popup.add(getMenuItem("Indent Left", EditorPaneActions.rstaDecreaseIndentAction));
+		//popup.addSeparator();
+		popup.add(getMenuItem("Move Up", EditorPaneActions.rtaLineUpAction));
+		popup.add(getMenuItem("Move Down", EditorPaneActions.rtaLineDownAction));
+		popup.add(getMenuItem("Join Lines", EditorPaneActions.rtaJoinLinesAction));
+		JMenu menu = new JMenu("Transform Case");
+		popup.add(menu);
+		menu.add(getMenuItem("Invert Case", EditorPaneActions.rtaInvertSelectionCaseAction));
+		menu.addSeparator();
+		menu.add(getMenuItem("Camel Case", EditorPaneActions.epaCamelCaseAction));
+		menu.add(getMenuItem("Lower Case", EditorPaneActions.rtaLowerSelectionCaseAction));
+		menu.add(getMenuItem("Lower Case ('_' Sep.)", EditorPaneActions.epaLowerCaseUndAction));
+		menu.add(getMenuItem("Title Case", EditorPaneActions.epaTitleCaseAction));
+		menu.add(getMenuItem("Upper Case", EditorPaneActions.rtaUpperSelectionCaseAction));
+		TextEditor.addPopupMenuSeparator(popup, "Ocurrences:");
+		popup.add(getMenuItem("Next Occurrence", EditorPaneActions.rtaNextOccurrenceAction));
+		popup.add(getMenuItem("Previous Occurrence", EditorPaneActions.rtaPrevOccurrenceAction));
+		TextEditor.addPopupMenuSeparator(popup, "Utilities:");
+		popup.add(new OpenLinkUnderCursor().getMenuItem());
+		popup.add(new SearchWebOnSelectedText().getMenuItem());
+		//popup.addSeparator();
+		popup.add(noneLangSyntaxMenu);
+
+	}
+
+	private JMenuItem getMenuItem(final String label, final String actionID) {
+		final Action action = getActionMap().get(actionID);
+		final JMenuItem jmi = new JMenuItem(action);
+		jmi.setAccelerator(getPaneActions().getAccelerator(actionID));
+		jmi.setText(label);
+		return jmi;
+	}
+
+	private JMenu geSyntaxForNoneLang() {
+		final JMenu menu = new JMenu("Non-Executable Syntax");
+		menu.setToolTipText("Markup languages when scripting language is none");
+		final ButtonGroup bg = new ButtonGroup();
+		menu.add(getSyntaxItem(bg, "None", SYNTAX_STYLE_NONE));
+		bg.getElements().nextElement().setSelected(true); //select none
+		menu.addSeparator();
+		menu.add(getSyntaxItem(bg, "BAT", SYNTAX_STYLE_WINDOWS_BATCH));
+		menu.add(getSyntaxItem(bg, "CSS", SYNTAX_STYLE_CSS));
+		menu.add(getSyntaxItem(bg, "Dockerfile", SYNTAX_STYLE_DOCKERFILE));
+		menu.add(getSyntaxItem(bg, "HTML", SYNTAX_STYLE_HTML));
+		menu.add(getSyntaxItem(bg, "JSON", SYNTAX_STYLE_JSON));
+		menu.add(getSyntaxItem(bg, "Makefile", SYNTAX_STYLE_MAKEFILE));
+		menu.add(getSyntaxItem(bg, "SH", SYNTAX_STYLE_UNIX_SHELL));
+		menu.add(getSyntaxItem(bg, "XML", SYNTAX_STYLE_XML));
+		menu.add(getSyntaxItem(bg, "YAML", SYNTAX_STYLE_YAML));
+		return menu;
+	}
+
+	private JMenuItem getSyntaxItem(final ButtonGroup bg, final String label, final String syntaxId) {
+		final JRadioButtonMenuItem item = new JRadioButtonMenuItem(label);
+		bg.add(item);
+		item.addActionListener(e -> {
+			if (getCurrentLanguage() == null) {
+				setSyntaxEditingStyle(syntaxId);
+			} else {
+				log.error("[BUG] Unknown state: Non-executable syntaxes cannot be applied to valid languages");
+				bg.getElements().nextElement().setSelected(true); //select none
+				setSyntaxEditingStyle(SYNTAX_STYLE_NONE);
+			}
+		});
+		return item;
 	}
 
 	@Override
@@ -151,25 +338,29 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 		final RTextScrollPane sp = new RTextScrollPane(this);
 		sp.setPreferredSize(new Dimension(600, 350));
 		sp.setIconRowHeaderEnabled(true);
-
 		gutter = sp.getGutter();
-		iconGroup = new IconGroup("bullets", "images/", null, "png", null);
-		gutter.setBookmarkIcon(iconGroup.getIcon("var"));
 		gutter.setBookmarkingEnabled(true);
-
+		gutter.setShowCollapsedRegionToolTips(true);
+		gutter.setFoldIndicatorEnabled(true);
+		GutterUtils.updateIcons(gutter);
 		return sp;
 	}
 
-	/**
-	 * TODO
-	 *
-	 * @param direction
-	 * @param select
-	 * @return
-	 */
-	RecordableTextAction wordMovement(final int direction, final boolean select) {
-		final String id = "WORD_MOVEMENT_" + select + direction;
+	RecordableTextAction wordMovement(final String id, final int direction, final boolean select) {
 		return new RecordableTextAction(id) {
+			private static final long serialVersionUID = 1L;
+
+			@Override
+			public String getDescription() {
+				final StringBuilder sb = new StringBuilder();
+				if (direction > 0)
+					sb.append("Next");
+				else
+					sb.append("Previous");
+				sb.append("Word");
+				if (select) sb.append("Select");
+				return sb.toString();
+			}
 
 			@Override
 			public void actionPerformedImpl(final ActionEvent e,
@@ -330,7 +521,9 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 				string.append(buffer, 0, count);
 			}
 			reader.close();
-			setText(string.toString());
+			SwingUtilities.invokeLater(() -> {
+				setText(string.toString()); // otherwise GUI freezes!??
+			});
 			curFile = file;
 			if (line > getLineCount()) line = getLineCount() - 1;
 			try {
@@ -351,7 +544,6 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 	 */
 	public void setFileName(final String baseName) {
 		fallBackBaseName = baseName;
-		log.debug("AJ1-"+fallBackBaseName);
 		if (currentLanguage == null) {
 			return;
 		}
@@ -364,7 +556,6 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 				break;
 			}
 		}
-		log.debug("AJ2-"+fallBackBaseName);
 
 		if (currentLanguage.getLanguageName().equals("Java")) {
 			new TokenFunctions(this).setClassName(fallBackBaseName);
@@ -510,25 +701,94 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 			log.debug(exc);
 		}
 
-		log.debug("AJ3-"+styleName);
-
 		// Add header text
 		if (header != null) {
 			setText(header += getText());
 		}
 
+		noneLangSyntaxMenu.setEnabled(language == null);
+		if ("None".equals(languageName) ) {
+			supportStatus = "Active language: None";
+			return; // no need to update console any further
+		}
+		String supportLevel = "SciJava supported";
 		// try to get language support for current language, may be null.
 		support = languageSupportService.getLanguageSupport(currentLanguage);
 
-		if (support != null && autoCompletionEnabled) {
-			support.install(this);
+		// that did not work. See if there is internal support for it.
+		if (support == null) {
+			support = LanguageSupportFactory.get().getSupportFor(styleName);
+			supportLevel = "Legacy supported";
 		}
+		// that did not work, Fallback to Java
+		if (support == null && autoCompletionJavaFallback) {
+			support = languageSupportService.getLanguageSupport(scriptService.getLanguageByName("Java"));
+			supportLevel = "N/A. Using Java as fallback";
+		}
+		if (support != null) {
+			support.setAutoCompleteEnabled(autoCompletionEnabled);
+			support.setAutoActivationEnabled(autoCompletionWithoutKey);
+			support.install(this);
+			if (!autoCompletionEnabled)
+				supportLevel += " but currently disabled\n";
+			else {
+				supportLevel += " triggered by Ctrl+Space";
+				if (autoCompletionWithoutKey)
+					supportLevel += " & auto-display ";
+				supportLevel += "\n";
+			}
+		} else {
+			supportLevel = "N/A";
+		}
+		supportStatus = "Active language: " + languageName + "\nAutocompletion: " + supportLevel;
 	}
 
-	private boolean autoCompletionEnabled = true;
-	public void setAutoCompletionEnabled(boolean value) {
-		autoCompletionEnabled = value;
-		setLanguage(currentLanguage);
+	/**
+	 * Toggles whether auto-completion is enabled.
+	 * 
+	 * @param enabled Whether auto-activation is enabled.
+	 */
+	public void setAutoCompletion(final boolean enabled) {
+		autoCompletionEnabled = enabled;
+		if (currentLanguage != null)
+			setLanguage(currentLanguage);
+	}
+
+	/**
+	 * Toggles whether auto-completion should adopt Java completions if the current
+	 * language does not support auto-completion.
+	 * 
+	 * @param enabled Whether Java should be enabled as fallback language for
+	 *                auto-completion
+	 */
+	void setFallbackAutoCompletion(final boolean value) {
+		autoCompletionJavaFallback = value;
+		if (autoCompletionEnabled && currentLanguage != null)
+			setLanguage(currentLanguage);
+	}
+
+	/**
+	 * Toggles whether auto-activation of auto-completion is enabled. Ignored if
+	 * auto-completion is not enabled.
+	 *
+	 * @param enabled Whether auto-activation is enabled.
+	 */
+	void setKeylessAutoCompletion(final boolean enabled) {
+		autoCompletionWithoutKey = enabled;
+		if (autoCompletionEnabled && currentLanguage != null)
+			setLanguage(currentLanguage);
+	}
+
+	public boolean isAutoCompletionEnabled() {
+		return autoCompletionEnabled;
+	}
+
+	public boolean isAutoCompletionKeyless() {
+		return autoCompletionWithoutKey;
+	}
+
+	public boolean isAutoCompletionFallbackEnabled() {
+		return autoCompletionJavaFallback;
 	}
 
 	/**
@@ -583,6 +843,12 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 		final float size = Math.max(5, font.getSize2D() * factor);
 		setFont(font.deriveFont(size));
 		setSyntaxScheme(scheme);
+		// Adjust gutter size
+		if (gutter != null) {
+			final float lnSize = size * 0.8f;
+			gutter.setLineNumberFont(font.deriveFont(lnSize));
+			GutterUtils.updateIcons(gutter);
+		}
 		Component parent = getParent();
 		if (parent instanceof JViewport) {
 			parent = parent.getParent();
@@ -619,7 +885,8 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 			}
 			catch (final BadLocationException e) {
 				/* ignore */
-				log.error("Cannot toggle bookmark at this location.");
+				JOptionPane.showMessageDialog(this, "Cannot toggle bookmark at this location.", "Error",
+						JOptionPane.ERROR_MESSAGE);
 			}
 		}
 	}
@@ -717,34 +984,109 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 	public static final String LINE_WRAP_PREFS = "script.editor.WrapLines";
 	public static final String TAB_SIZE_PREFS = "script.editor.TabSize";
 	public static final String TABS_EMULATED_PREFS = "script.editor.TabsEmulated";
+	public static final String WHITESPACE_VISIBLE_PREFS = "script.editor.Whitespace";
+	public static final String TABLINES_VISIBLE_PREFS = "script.editor.Tablines";
+	public static final String MARGIN_VISIBLE_PREFS = "script.editor.Margin";
+	public static final String THEME_PREFS = "script.editor.theme";
+	public static final String AUTOCOMPLETE_PREFS = "script.editor.AC";
+	public static final String AUTOCOMPLETE_KEYLESS_PREFS = "script.editor.ACNoKey";
+	public static final String AUTOCOMPLETE_FALLBACK_PREFS = "script.editor.ACFallback";
+	public static final String MARK_OCCURRENCES_PREFS = "script.editor.Occurrences";
 	public static final String FOLDERS_PREFS = "script.editor.folders";
-
 	public static final int DEFAULT_TAB_SIZE = 4;
+	public static final String DEFAULT_THEME = "default";
 
 	/**
-	 * Loads the preferences for the Tab and apply them.
+	 * Loads and applies the preferences for the tab
 	 */
 	public void loadPreferences() {
-		resetTabSize();
-		setFontSize(prefService.getFloat(getClass(), FONT_SIZE_PREFS, getFontSize()));
-		setLineWrap(prefService.getBoolean(getClass(), LINE_WRAP_PREFS, getLineWrap()));
-		setTabsEmulated(prefService.getBoolean(getClass(), TABS_EMULATED_PREFS,
-			getTabsEmulated()));
+		if (prefService == null) {
+			setLineWrap(false);
+			setTabSize(DEFAULT_TAB_SIZE);
+			setLineWrap(false);
+			setTabsEmulated(false);
+			setPaintTabLines(false);
+			setAutoCompletion(true);
+			setKeylessAutoCompletion(true); // true for backwards compatibility with IJ1 macro auto-completion
+			setFallbackAutoCompletion(false);
+			setMarkOccurrences(false);
+		} else {
+			resetTabSize();
+			setFontSize(prefService.getFloat(getClass(), FONT_SIZE_PREFS, getFontSize()));
+			setLineWrap(prefService.getBoolean(getClass(), LINE_WRAP_PREFS, getLineWrap()));
+			setTabsEmulated(prefService.getBoolean(getClass(), TABS_EMULATED_PREFS, getTabsEmulated()));
+			setWhitespaceVisible(prefService.getBoolean(getClass(), WHITESPACE_VISIBLE_PREFS, isWhitespaceVisible()));
+			setPaintTabLines(prefService.getBoolean(getClass(), TABLINES_VISIBLE_PREFS, getPaintTabLines()));
+			setAutoCompletion(prefService.getBoolean(getClass(), AUTOCOMPLETE_PREFS, true));
+			setKeylessAutoCompletion(prefService.getBoolean(getClass(), AUTOCOMPLETE_KEYLESS_PREFS, true)); // true for backwards compatibility with IJ1 macro
+			setFallbackAutoCompletion(prefService.getBoolean(getClass(), AUTOCOMPLETE_FALLBACK_PREFS, false));
+			setMarkOccurrences(prefService.getBoolean(getClass(), MARK_OCCURRENCES_PREFS, false));
+			setMarginLineEnabled(prefService.getBoolean(getClass(), MARGIN_VISIBLE_PREFS, false));
+			applyTheme(themeName());
+		}
 	}
-	
+
+	/**
+	 * Applies a theme to this pane.
+	 *
+	 * @param theme either "default", "dark", "druid", "eclipse", "idea", "monokai",
+	 *              "vs"
+	 * @throws IllegalArgumentException If {@code theme} is not a valid option, or
+	 *                                  the resource could not be loaded
+	 */
+	public void applyTheme(final String theme) throws IllegalArgumentException {
+		try {
+			applyTheme(getTheme(theme));
+		} catch (final Exception ex) {
+			throw new IllegalArgumentException(ex);
+		}
+	}
+
+	public String themeName() {
+		return prefService.get(getClass(), THEME_PREFS, DEFAULT_THEME);
+	}
+
+	private void applyTheme(final Theme th) throws IllegalArgumentException {
+		// themes include font size, so we'll need to reset that
+		final float existingFontSize = getFontSize();
+		th.apply(this);
+		setFontSize(existingFontSize);
+		GutterUtils.updateIcons(gutter);
+	}
+
+	private static Theme getTheme(final String theme) throws IllegalArgumentException {
+		try {
+			return Theme
+					.load(TextEditor.class.getResourceAsStream("/org/fife/ui/rsyntaxtextarea/themes/" + theme + ".xml"));
+		} catch (final Exception ex) {
+			throw new IllegalArgumentException(ex);
+		}
+	}
+
 	public String loadFolders() {
 		return prefService.get(getClass(), FOLDERS_PREFS, System.getProperty("user.home"));
 	}
 
 	/**
-	 * Retrieves and saves the preferences to the persistent store
+	 * Retrieves and saves the preferences to the persistent store.
+	 *
+	 * @param top_folders the File Explorer's pane top folder paths (":" separated list)
+	 * @param theme the Script Editor's theme
 	 */
-	public void savePreferences(final String top_folders) {
+	public void savePreferences(final String top_folders, final String theme) {
 		prefService.put(getClass(), TAB_SIZE_PREFS, getTabSize());
 		prefService.put(getClass(), FONT_SIZE_PREFS, getFontSize());
 		prefService.put(getClass(), LINE_WRAP_PREFS, getLineWrap());
 		prefService.put(getClass(), TABS_EMULATED_PREFS, getTabsEmulated());
+		prefService.put(getClass(), WHITESPACE_VISIBLE_PREFS, isWhitespaceVisible());
+		prefService.put(getClass(), TABLINES_VISIBLE_PREFS, getPaintTabLines());
+		prefService.put(getClass(), AUTOCOMPLETE_PREFS, isAutoCompletionEnabled());
+		prefService.put(getClass(), AUTOCOMPLETE_KEYLESS_PREFS, isAutoCompletionKeyless());
+		prefService.put(getClass(), AUTOCOMPLETE_FALLBACK_PREFS, isAutoCompletionFallbackEnabled());
+		prefService.put(getClass(), MARGIN_VISIBLE_PREFS, isMarginLineEnabled());
+		prefService.put(getClass(), MARK_OCCURRENCES_PREFS, getMarkOccurrences());
 		if (null != top_folders) prefService.put(getClass(), FOLDERS_PREFS, top_folders);
+		if (null != theme) prefService.put(getClass(), THEME_PREFS, theme);
 	}
 
 	/**
@@ -754,4 +1096,153 @@ public class EditorPane extends RSyntaxTextArea implements DocumentListener {
 		setTabSize(prefService.getInt(getClass(), TAB_SIZE_PREFS, DEFAULT_TAB_SIZE));
 	}
 
+	String getSupportStatus() {
+		return supportStatus;
+	}
+
+	 void openLinkInBrowser(String link) {
+		try {
+			if (!link.startsWith("http"))
+				link = "https://" + link; // or it won't work
+			platformService.open(new URL(link));
+		} catch (final IOException exc) {
+			UIManager.getLookAndFeel().provideErrorFeedback(this);
+			System.out.println(exc.getMessage());
+		}
+	}
+
+	ErrorParser getErrorHighlighter() {
+		return errorHighlighter;
+	}
+
+	public EditorPaneActions getPaneActions() {
+		return actions;
+	}
+
+	class SearchWebOnSelectedText extends RecordableTextAction {
+		private static final long serialVersionUID = 1L;
+
+		SearchWebOnSelectedText() {
+			super("RTA.SearchWebOnSelectedTextAction");
+		}
+
+		@Override
+		public void actionPerformedImpl(final ActionEvent e, final RTextArea textArea) {
+			if (!textArea.isEditable() || !textArea.isEnabled()) {
+				UIManager.getLookAndFeel().provideErrorFeedback(textArea);
+				return;
+			}
+			final String selection = textArea.getSelectedText();
+			if (selection == null) {
+				UIManager.getLookAndFeel().provideErrorFeedback(textArea);
+			} else {
+				final String link = "https://duckduckgo.com/?q=" + selection.trim().replace(" ", "+");
+				openLinkInBrowser(link);
+			}
+			textArea.requestFocusInWindow();
+		}
+
+		@Override
+		public String getMacroID() {
+			return getName();
+		}
+
+		JMenuItem getMenuItem() {
+			final JMenuItem jmi = new JMenuItem(this);
+			jmi.setText("Search Web for Selection");
+			return jmi;
+		}
+
+
+	}
+
+	class OpenLinkUnderCursor extends RecordableTextAction {
+		private static final long serialVersionUID = 1L;
+
+		OpenLinkUnderCursor() {
+			super("RTA.OpenLinkUnderCursor.Action");
+		}
+
+		@Override
+		public void actionPerformedImpl(final ActionEvent e, final RTextArea textArea) {
+			if (!textArea.isEditable() || !textArea.isEnabled()) {
+				UIManager.getLookAndFeel().provideErrorFeedback(textArea);
+				return;
+			}
+			String link = new CursorUtils(textArea).getLinkAtCursor();
+			if (link == null) {
+				UIManager.getLookAndFeel().provideErrorFeedback(textArea);
+			} else {
+				openLinkInBrowser(link);
+			}
+			textArea.requestFocusInWindow();
+		}
+
+		@Override
+		public String getMacroID() {
+			return getName();
+		}
+
+		JMenuItem getMenuItem() {
+			final JMenuItem jmi = new JMenuItem(this);
+			jmi.setText("Open URL Under Cursor");
+			return jmi;
+		}
+	}
+
+	private static class CursorUtils {
+
+		final List<String> SPACE_SEPARATORS = Arrays.asList(" ", "\t", "\f", "\n", "\r");
+		final String URL_REGEX = "^((https?|ftp)://|(www|ftp)\\.)?[a-z0-9-]+(\\.[a-z0-9-]+)+([/?].*)?$";
+		final Pattern pattern = Pattern.compile(URL_REGEX);
+		final RTextArea pane;
+
+		private CursorUtils(RTextArea textArea) {
+			this.pane = textArea;
+		}
+	
+		String getLineAtCursor() {
+			final int start = pane.getLineStartOffsetOfCurrentLine();
+			final int end = pane.getLineEndOffsetOfCurrentLine();
+			try {
+				return pane.getDocument().getText(start, end - start);
+			} catch (BadLocationException ignored) {
+				// do nothing
+			}
+			return null;
+		}
+
+		String getWordAtCursor() {
+			final String text = getLineAtCursor();
+			final int pos = pane.getCaretOffsetFromLineStart();
+			final int wordStart = getWordStart(text, pos);
+			final int wordEnd = getWordEnd(text, pos);
+			return text.substring(wordStart, wordEnd);
+		}
+
+		String getLinkAtCursor() {
+			String text = getWordAtCursor();
+			if (text == null)
+				return null;
+			final Matcher m = pattern.matcher(text);
+			return (m.find()) ? m.group() : null;
+		}
+
+		int getWordStart(final String text, final int location) {
+			int wordStart = location;
+			while (wordStart > 0 && !SPACE_SEPARATORS.contains(text.substring(wordStart - 1, wordStart))) {
+				wordStart--;
+			}
+			return wordStart;
+		}
+
+		int getWordEnd(final String text, final int location) {
+			int wordEnd = location;
+			while (wordEnd < text.length() - 1
+					&& !SPACE_SEPARATORS.contains(text.substring(wordEnd, wordEnd + 1))) {
+				wordEnd++;
+			}
+			return wordEnd;
+		}
+	}
 }

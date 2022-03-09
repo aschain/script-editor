@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -29,34 +29,18 @@
 
 package org.scijava.ui.swing.script;
 
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
-
-import javax.swing.SwingUtilities;
-
-import org.scijava.Context;
-import org.scijava.script.ScriptLanguage;
-import org.scijava.script.ScriptService;
-import org.scijava.ui.swing.script.TextEditor;
-
 /**
  * Interactive test for the script editor.
+ * <p>
+ * This class exists so that you can launch the Script Editor conveniently from
+ * test scope, with the Groovy language included on the classpath.
+ * </p>
  *
  * @author Johannes Schindelin
+ * @author Curtis Rueden
  */
 public class ScriptEditorTestDrive {
 	public static void main(String[] args) throws Exception {
-		final Context context = new Context();
-		final TextEditor editor = new TextEditor(context);
-		final ScriptService scriptService = context.getService(ScriptService.class);
-		final ScriptLanguage lang = scriptService.getLanguageByName("Groovy");
-		editor.setLanguage(lang);
-		editor.addWindowListener(new WindowAdapter() {
-			@Override
-			public void windowClosed(final WindowEvent e) {
-				SwingUtilities.invokeLater(() -> context.dispose());
-			}
-		});
-		editor.setVisible(true);
+		Main.launch("Groovy");
 	}
 }

@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -53,11 +53,10 @@ import org.scijava.script.ScriptService;
  *
  * @author Curtis Rueden
  */
-@SuppressWarnings("serial")
 public class VarsPane extends JPanel {
 
 	private final ScriptREPL repl;
-	private final JComboBox<ScriptLanguage> langBox;
+	private final JComboBox langBox;
 	private final VarsTableModel varsTableModel;
 
 	public VarsPane(final Context context, final ScriptREPL repl) {
@@ -68,7 +67,7 @@ public class VarsPane extends JPanel {
 		final ScriptService scriptService = context.service(ScriptService.class);
 		final List<ScriptLanguage> langList = scriptService.getLanguages();
 		final ScriptLanguage[] langs = langList.toArray(new ScriptLanguage[0]);
-		langBox = new JComboBox<ScriptLanguage>(langs);
+		langBox = new JComboBox(langs);
 		langBox.setMaximumRowCount(25);
 		langBox.addActionListener(new ActionListener() {
 

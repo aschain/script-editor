@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -54,7 +54,7 @@ public class ChooseFontSize extends ContextCommand {
 		final float size = editor.getEditorPane().getFontSize();
 		changeFontSize(editor.getErrorScreen(), size);
 		changeFontSize(editor.getTab().getScreenInstance(), size);
-		editor.updateTabAndFontSize(false);
+		editor.updateUI(false);
 	}
 
 	private void changeFontSize(final JTextArea a, final float size) {

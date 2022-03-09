@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -72,7 +72,6 @@ import org.scijava.log.Logger;
  * @author Albert Cardona
  *
  */
-@SuppressWarnings("serial")
 public class FileSystemTree extends JTree
 {	
 	static private String withSlash(String path) {
@@ -133,10 +132,9 @@ public class FileSystemTree extends JTree
 		}
 
 		/**
-		 * 
-		 * @param sort
+		 * @param sort whether result should be sorted
 		 * @param file_filter Applies to leafs, not to directories.
-		 * @return
+		 * @return the array denoting children files
 		 */
 		public File[] updatedChildrenFiles(final boolean sort, final FileFilter file_filter) {
 			final File file = new File(this.path);
@@ -157,6 +155,9 @@ public class FileSystemTree extends JTree
 
 		/**
 		 * If it's a directory, add a Node for each of its visible files.
+		 *
+		 * @param model       the tree model
+		 * @param file_filter Applies to leafs, not to directories.
 		 */
 		public synchronized void populateChildren(final DefaultTreeModel model, final FileFilter file_filter) {
 			try {
@@ -253,7 +254,7 @@ public class FileSystemTree extends JTree
 		public void leafDoubleClicked(final File file);
 	}
 
-	private final Logger log;
+	final Logger log;
 
 	private ArrayList<LeafListener> leaf_listeners = new ArrayList<>();
 
@@ -271,6 +272,7 @@ public class FileSystemTree extends JTree
 		getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
 		setAutoscrolls(true);
 		setScrollsOnExpand(true);
+		setExpandsSelectedPaths(true);
 		addTreeWillExpandListener(new TreeWillExpandListener() {
 			@Override
 			public void treeWillExpand(TreeExpansionEvent event) throws ExpandVetoException {
@@ -440,9 +442,10 @@ public class FileSystemTree extends JTree
 					final TreePath[] p = new TreePath[1];
 					node.expandTo(dirPath, p);
 					if (null != p[0]) {
-						getModel().reload();
+						//getModel().reload(); // this will collapse all nodes
 						expandPath(p[0]);
-						scrollPathToVisible(p[0]);
+						setSelectionPath(p[0]);
+						scrollPathToVisible(p[0]); //spurious!?
 						return;
 					}
 				}
@@ -450,7 +453,8 @@ public class FileSystemTree extends JTree
 		}
 		// Else, append it as a new root
 		getModel().insertNodeInto(new Node(dirPath), root, root.getChildCount());
-		getModel().reload();
+		//getModel().reload(); // this will collapse all nodes
+		getModel().nodesWereInserted(root, new int[] { root.getChildCount() - 1 });
 	}
 
 	@Override
@@ -492,6 +496,7 @@ public class FileSystemTree extends JTree
 
 	public void destroy() {
 		dir_watcher.interrupt();
+		FileDrop.remove(this);
 	}
 
 	private class DirectoryWatcher extends Thread {

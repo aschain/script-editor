@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -191,7 +191,6 @@ public abstract class PromptPane implements UIComponent<JTextArea> {
 	 * Trivial extension of {@link JTextArea} to expose its {@code getRowHeight()}
 	 * method.
 	 */
-	@SuppressWarnings("serial")
 	public class TextArea extends JTextArea {
 		public TextArea(int rows, int columns) {
 			super(rows, columns);

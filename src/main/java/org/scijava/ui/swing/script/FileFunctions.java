@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -101,7 +101,6 @@ public class FileFunctions {
 			copyTo(jar.getInputStream(entry), destination);
 			result.add(destination);
 		}
-		jar.close();
 		return result;
 	}
 
@@ -157,8 +156,12 @@ public class FileFunctions {
 	}
 
 	/**
-	 * @deprecated Use {@link #getSourceURL(String)} instead.
+	 * Gets the source path.
+	 *
+	 * @param className the class name
+	 * @return the source path
 	 * @throws ClassNotFoundException
+	 * @deprecated Use {@link #getSourceURL(String)} instead.
 	 */
 	@Deprecated
 	public String getSourcePath(
@@ -220,7 +223,7 @@ public class FileFunctions {
 		}
 		if (paths.size() == 1) return new File(workspace, paths.get(0))
 			.getAbsolutePath();
-		//final String[] names = paths.toArray(new String[paths.size()]);
+		final String[] names = paths.toArray(new String[paths.size()]);
 		final JFileChooser chooser = new JFileChooser(workspace);
 		chooser.setDialogTitle("Choose path");
 		if (chooser.showOpenDialog(parent) != JFileChooser.APPROVE_OPTION) return null;
@@ -267,7 +270,11 @@ public class FileFunctions {
 	}
 
 	/**
-	 * Get a list of files from a directory (recursively)
+	 * Get a list of files from a directory (recursively).
+	 *
+	 * @param directory the directory to be parsed
+	 * @param prefix a prefix to prepend to filenames
+	 * @param result List holding filenames
 	 */
 	public void listFilesRecursively(final File directory, final String prefix,
 		final List<String> result)
@@ -280,9 +287,12 @@ public class FileFunctions {
 	}
 
 	/**
-	 * Get a list of files from a directory or within a .jar file The returned
-	 * items will only have the base path, to get at the full URL you have to
-	 * prefix the url passed to the function.
+	 * Get a list of files from a directory or within a .jar file The returned items
+	 * will only have the base path, to get at the full URL you have to prefix the
+	 * url passed to the function.
+	 *
+	 * @param url the string specifying the resource
+	 * @return the list of files
 	 */
 	public List<String> getResourceList(String url) {
 		final List<String> result = new ArrayList<>();
@@ -297,7 +307,6 @@ public class FileFunctions {
 			try {
 				final JarFile jar = new JarFile(jarURL);
 				final Enumeration<JarEntry> e = jar.entries();
-				jar.close();
 				while (e.hasMoreElements()) {
 					final JarEntry entry = e.nextElement();
 					if (entry.getName().startsWith(prefix)) result.add(entry.getName()

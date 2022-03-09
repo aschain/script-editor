@@ -1,8 +1,8 @@
-/*-
+/*
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -26,20 +26,46 @@
  * POSSIBILITY OF SUCH DAMAGE.
  * #L%
  */
-package org.scijava.ui.swing.script.autocompletion;
 
-public class JythonImportFormat implements ImportFormat
-{
-	@Override
-	public final String singleToImportStatement(final String className) {
-		final int idot = className.lastIndexOf('.');
-		if (-1 == idot)
-			return "import " + className;
-		return dualToImportStatement(className.substring(0, idot), className.substring(idot + 1));
+package org.scijava.ui.swing.script;
+
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+
+import javax.swing.SwingUtilities;
+
+import org.scijava.Context;
+import org.scijava.script.ScriptLanguage;
+import org.scijava.script.ScriptService;
+
+/**
+ * Main entry point for launching the script editor standalone.
+ *
+ * @author Johannes Schindelin
+ * @author Curtis Rueden
+ */
+public final class Main {
+
+	public static void launch(final String language) {
+		final Context context = new Context();
+		final TextEditor editor = new TextEditor(context);
+		final ScriptService scriptService = context.getService(ScriptService.class);
+		final ScriptLanguage lang = scriptService.getLanguageByName(language);
+		if (lang == null) {
+			throw new IllegalArgumentException("Script language '" + language +
+				"' not found");
+		}
+		editor.setLanguage(lang);
+		editor.addWindowListener(new WindowAdapter() {
+			@Override
+			public void windowClosed(final WindowEvent e) {
+				SwingUtilities.invokeLater(() -> context.dispose());
+			}
+		});
+		editor.setVisible(true);
 	}
-
-	@Override
-	public String dualToImportStatement(final String packageName, final String simpleClassName) {
-		return "from " + packageName + " import " + simpleClassName;
+	public static void main(String[] args) throws Exception {
+		String lang = args.length == 0 ? "Java" : args[0];
+		launch(lang);
 	}
 }

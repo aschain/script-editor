@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -32,10 +32,6 @@ package org.scijava.ui.swing.script;
 import java.io.IOException;
 import java.net.URL;
 
-import ij.Menus;
-import ij.macro.Interpreter;
-import ij.plugin.MacroInstaller;
-
 /**
  * TODO
  *
@@ -50,16 +46,6 @@ public class MacroFunctions {
 
 	public MacroFunctions(final TextEditor editor) {
 		this.editor = editor;
-	}
-
-	public void installMacro(String title, String code) {
-		String prefix = Interpreter.getAdditionalFunctions();
-		if (prefix != null)
-			code = prefix + "\n" + code;
-                MacroInstaller installer = new MacroInstaller();
-                installer.setFileName(title);
-                if (installer.install(code, Menus.getMacrosMenu()) > 0)
-                        installer.install(null);
 	}
 
 	public void openHelp(final String name) throws IOException {

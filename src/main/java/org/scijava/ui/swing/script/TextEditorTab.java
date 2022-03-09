@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2020 SciJava developers.
+ * Copyright (C) 2009 - 2022 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -29,8 +29,8 @@
 
 package org.scijava.ui.swing.script;
 
+import java.awt.BorderLayout;
 import java.awt.Dimension;
-import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.datatransfer.DataFlavor;
@@ -49,7 +49,6 @@ import java.util.List;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
@@ -57,6 +56,7 @@ import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.text.JTextComponent;
 
+import org.fife.ui.rsyntaxtextarea.ErrorStrip;
 import org.scijava.ui.swing.script.TextEditor.Executer;
 
 /**
@@ -64,11 +64,9 @@ import org.scijava.ui.swing.script.TextEditor.Executer;
  *
  * @author Jonathan Hale
  */
-@SuppressWarnings("serial")
 public class TextEditorTab extends JSplitPane {
 
 	private static final String DOWN_ARROW = "\u25BC";
-
 	private static final String RIGHT_ARROW = "\u25B6";
 
 	protected final EditorPane editorPane;
@@ -82,6 +80,7 @@ public class TextEditorTab extends JSplitPane {
 	private final JButton runit, batchit, killit, toggleErrors, switchSplit;
 	private final JCheckBox incremental;
 	private final JSplitPane screenAndPromptSplit;
+	private int screenAndPromptSplitDividerLocation;
 
 	private final TextEditor textEditor;
 	private DropTarget dropTarget;
@@ -90,21 +89,22 @@ public class TextEditorTab extends JSplitPane {
 	public TextEditorTab(final TextEditor textEditor) {
 		super(JSplitPane.VERTICAL_SPLIT);
 		super.setResizeWeight(350.0 / 430.0);
-		this.setOneTouchExpandable(true);
+		setOneTouchExpandable(true);
 
 		this.textEditor = textEditor;
 		editorPane = new EditorPane();
 		dropTargetListener = new DropTargetListener() {
 			@Override
-			public void dropActionChanged(DropTargetDragEvent arg0) {}
+			public void dropActionChanged(final DropTargetDragEvent arg0) {}
 			
 			@Override
-			public void drop(DropTargetDropEvent e) {
+			public void drop(final DropTargetDropEvent e) {
 				if (e.getDropAction() != DnDConstants.ACTION_COPY) {
 					e.rejectDrop();
 					return;
 				}
-				Transferable t = e.getTransferable();
+				e.acceptDrop(DnDConstants.ACTION_COPY_OR_MOVE); // fix for InvalidDnDOperationException: No drop current
+				final Transferable t = e.getTransferable();
 				if (!t.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) return;
 				try {
 					final Object o = t.getTransferData(DataFlavor.javaFileListFlavor);
@@ -112,7 +112,7 @@ public class TextEditorTab extends JSplitPane {
 					final List<?> list = (List<?>) o;
 					if (list.isEmpty()) return;
 					String path;
-					Object first = list.get(0);
+					final Object first = list.get(0);
 					if (first instanceof String) path = (String) first;
 					else if (first instanceof File) path = ((File) first).getAbsolutePath();
 					else return;
@@ -120,29 +120,31 @@ public class TextEditorTab extends JSplitPane {
 					// Point p = e.getLocation();
 					// ... but it is more predictable (less surprising) to insert where the caret is:
 					editorPane.getRSyntaxDocument().insertString(editorPane.getCaretPosition(), path, null);
-				} catch (Exception ex) {
+				} catch (final Exception ex) {
 					ex.printStackTrace();
 				}
 			}
 			
 			@Override
-			public void dragOver(DropTargetDragEvent e) {
+			public void dragOver(final DropTargetDragEvent e) {
 				if (e.getDropAction() != DnDConstants.ACTION_COPY) e.rejectDrag();
 			}
 			
 			@Override
-			public void dragExit(DropTargetEvent e) {}
+			public void dragExit(final DropTargetEvent e) {}
 			
 			@Override
-			public void dragEnter(DropTargetDragEvent e) {
+			public void dragEnter(final DropTargetDragEvent e) {
 				if (e.getDropAction() != DnDConstants.ACTION_COPY) e.rejectDrag();
 			}
 		};
 		dropTarget = new DropTarget(editorPane, DnDConstants.ACTION_COPY, dropTargetListener);
 
+		// tweaks for console
 		screen.setEditable(false);
-		screen.setLineWrap(true);
-		screen.setFont(new Font("Courier", Font.PLAIN, 12));
+		screen.setLineWrap(false);
+		screen.setFont(getEditorPane().getFont());
+		textEditor.applyConsolePopupMenu(screen);
 
 		final JPanel bottom = new JPanel();
 		bottom.setLayout(new GridBagLayout());
@@ -155,41 +157,24 @@ public class TextEditorTab extends JSplitPane {
 		bc.anchor = GridBagConstraints.NORTHWEST;
 		bc.fill = GridBagConstraints.NONE;
 		runit = new JButton("Run");
-		runit.setToolTipText("control + R");
-		runit.addActionListener(new ActionListener() {
-
-			@Override
-			public void actionPerformed(final ActionEvent ae) {
-				textEditor.runText();
-			}
-		});
+		runit.setToolTipText("Control+R, F5, or F11");
+		runit.addActionListener(ae -> textEditor.runText());
 		bottom.add(runit, bc);
 
 		bc.gridx = 1;
 		batchit = new JButton("Batch");
-		batchit.addActionListener(new ActionListener() {
-
-			@Override
-			public void actionPerformed(final ActionEvent ae) {
-				textEditor.runBatch();
-			}
-		});
+		batchit.setToolTipText("Requires at least one @File SciJava parameter to be declared");
+		batchit.addActionListener(e -> textEditor.runBatch());
 		bottom.add(batchit, bc);
 
 		bc.gridx = 2;
 		killit = new JButton("Kill");
 		killit.setEnabled(false);
-		killit.addActionListener(new ActionListener() {
-
-			@Override
-			public void actionPerformed(final ActionEvent ae) {
-				kill();
-			}
-		});
+		killit.addActionListener(ae -> kill());
 		bottom.add(killit, bc);
-		
+
 		bc.gridx = 3;
-		incremental = new JCheckBox("persistent");
+		incremental = new JCheckBox("REPL");
 		incremental.setEnabled(true);
 		incremental.setSelected(false);
 		bottom.add(incremental, bc);
@@ -212,7 +197,10 @@ public class TextEditorTab extends JSplitPane {
 		bc.weightx = 0;
 		bc.anchor = GridBagConstraints.NORTHEAST;
 		final JButton clear = new JButton("Clear");
-		clear.addActionListener(ae -> getScreen().setText(""));
+		clear.addActionListener(ae -> {
+			getScreen().setText("");
+			if (showingErrors) editorPane.getErrorHighlighter().reset();
+		});
 		bottom.add(clear, bc);
 		
 		bc.gridx = 7;
@@ -220,7 +208,7 @@ public class TextEditorTab extends JSplitPane {
 		switchSplit.setToolTipText("Switch location");
 		switchSplit.addActionListener(new ActionListener() {
 			@Override
-			public void actionPerformed(ActionEvent e) {
+			public void actionPerformed(final ActionEvent e) {
 				if (DOWN_ARROW.equals(switchSplit.getText())) {
 					TextEditorTab.this.setOrientation(JSplitPane.VERTICAL_SPLIT);
 				} else {
@@ -228,7 +216,7 @@ public class TextEditorTab extends JSplitPane {
 				}
 				// Keep prompt collapsed if not in use
 				if (!incremental.isSelected()) {
-					SwingUtilities.invokeLater(() -> screenAndPromptSplit.setDividerLocation(1.0));
+					setREPLVisible(false);
 				}
 			}
 		});
@@ -241,15 +229,13 @@ public class TextEditorTab extends JSplitPane {
 		bc.weightx = 1;
 		bc.weighty = 1;
 		bc.gridwidth = 8;
-		screen.setEditable(false);
-		screen.setLineWrap(true);
-		final Font font = new Font("Courier", Font.PLAIN, 12);
-		screen.setFont(font);
 		scroll = new JScrollPane(screen);
 		bottom.add(scroll, bc);
-		
+
 		prompt.setEnabled(false);
-		
+		prompt.setFont(getEditorPane().getFont());
+		prompt.setTabSize(editorPane.getTabSize());
+
 		final JPanel prompt_panel = new JPanel();
 		prompt_panel.setMinimumSize(new Dimension(0, 0));
 		prompt_panel.setVisible(false);
@@ -278,22 +264,19 @@ public class TextEditorTab extends JSplitPane {
 		
 		bc.gridx = 3;
 		final JButton prompt_help = new JButton("?");
-		prompt_help.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent a) {
-				final String msg = "This REPL (read-evaluate-print-loop) parses " + textEditor.getCurrentLanguage().getLanguageName() + " code.\n\n"
-						+ "Key bindings:\n"
-						+ "* enter: evaluate code\n"
-						+ "* shift+enter: add line break (also alt-enter and meta-enter)\n"
-						+ "* page UP or ctrl+p: show previous entry in the history\n"
-						+ "* page DOWN or ctrl+n: show next entry in the history\n"
-						+ "\n"
-						+ "If 'Use arrow keys' is checked, then up/down arrows work like page UP/DOWN,\n"
-						+ "and shift+up/down arrow work like arrow keys before for caret movement\n"
-						+ "within a multi-line prompt."
-						;
-				JOptionPane.showMessageDialog(textEditor, msg, "REPL help", JOptionPane.INFORMATION_MESSAGE);
-			}
+		prompt_help.addActionListener(a -> {
+			final String msg = "This REPL (Read-Evaluate-Print-Loop) parses " + textEditor.getCurrentLanguage().getLanguageName() + " code.\n\n"
+					+ "Key bindings:\n"
+					+ "  [Enter]:   Evaluate code\n"
+					+ "  [Shift+Enter]:   Add line break (also alt-enter and meta-enter)\n"
+					+ "  [Page UP] or [Ctrl+P]:   Show previous entry in the history\n"
+					+ "  [Page DOWN] or [Ctrl+N]:   Show next entry in the history\n"
+					+ "\n"
+					+ "If 'Use arrow keys' is checked, then up/down arrows work like\n"
+					+ "Page UP/DOWN, and Shift+up/down arrows work like arrow\n"
+					+ "keys before for caret movement within a multi-line prompt."
+					;
+			textEditor.info(msg, "REPL Help");
 		});
 		prompt_panel.add(prompt_help, bc);
 		
@@ -305,12 +288,11 @@ public class TextEditorTab extends JSplitPane {
 		bc.weighty = 1;
 		bc.gridwidth = 4;
 		prompt_panel.add(prompt, bc);
-		
+
 		incremental.addActionListener(ae -> {
 			if (incremental.isSelected() && null == textEditor.getCurrentLanguage()) {
 				incremental.setSelected(false);
-				JOptionPane.showMessageDialog(TextEditorTab.this,
-					"Select a language first!");
+				textEditor.error("Select a language first!");
 				return;
 			}
 			textEditor.setIncremental(incremental.isSelected());
@@ -321,10 +303,20 @@ public class TextEditorTab extends JSplitPane {
 		});
 
 		screenAndPromptSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, bottom, prompt_panel);
-		
-		super.setLeftComponent(editorPane.wrappedInScrollbars());
+
+		// Enable ErrorSrip à la Eclipse. This will keep track of lines with 'Mark All'
+		// occurrences as well as lines associated with ParserNotice.Level.WARNING and
+		// ParserNotice.Level.ERROR. NB: As is, the end of the strip corresponds to the
+		// last line of text in the text area: E.g., for a text area with just 3 lines,
+		// line 2 will be marked at the strip's half height
+		final ErrorStrip es = new ErrorStrip(editorPane);
+		es.setShowMarkAll(true);
+		es.setShowMarkedOccurrences(true);
+		final JPanel holder = new JPanel(new BorderLayout());
+		holder.add(editorPane.wrappedInScrollbars());
+		holder.add(es, BorderLayout.LINE_END);
+		super.setLeftComponent(holder);
 		super.setRightComponent(screenAndPromptSplit);
-		screenAndPromptSplit.setDividerLocation(600);
 		screenAndPromptSplit.setDividerLocation(1.0);
 
 		// Persist Script Editor layout whenever split pane divider is adjusted.
@@ -333,10 +325,30 @@ public class TextEditorTab extends JSplitPane {
 				textEditor.saveWindowSizeToPrefs();
 		});
 	}
-	
+
 	// Package-private
 	JSplitPane getScreenAndPromptSplit() {
 		return screenAndPromptSplit;
+	}
+
+	void setREPLVisible(final boolean visible) {
+		SwingUtilities.invokeLater(() -> {
+			if (visible) {
+				// If stashed location of divider is invalid, set divider to half of panel's height and re-stash
+				if (screenAndPromptSplitDividerLocation <= 0
+						|| screenAndPromptSplitDividerLocation <= getScreenAndPromptSplit().getMinimumDividerLocation()
+						|| screenAndPromptSplitDividerLocation >= getScreenAndPromptSplit().getMaximumDividerLocation()) {
+					getScreenAndPromptSplit().setDividerLocation(.5d);
+					screenAndPromptSplitDividerLocation = getScreenAndPromptSplit().getDividerLocation();
+				} else {
+					getScreenAndPromptSplit().setDividerLocation(screenAndPromptSplitDividerLocation);
+				}
+			} else { // collapse to bottom
+				screenAndPromptSplitDividerLocation = getScreenAndPromptSplit().getDividerLocation();
+				getScreenAndPromptSplit().setDividerLocation(1f);
+			}
+			incremental.setSelected(visible);
+		});
 	}
 
 	@Override
@@ -366,6 +378,8 @@ public class TextEditorTab extends JSplitPane {
 			runit.setEnabled(true);
 			killit.setEnabled(false);
 			setExecutor(null);
+			if(incremental.isSelected())
+				prompt.requestFocusInWindow();
 		});
 	}
 
