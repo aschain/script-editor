@@ -154,8 +154,8 @@ public class TextEditorTab extends JSplitPane {
 		bc.gridy = 0;
 		bc.weightx = 0;
 		bc.weighty = 0;
-		bc.anchor = GridBagConstraints.NORTHWEST;
-		bc.fill = GridBagConstraints.NONE;
+		bc.anchor = GridBagConstraints.CENTER;
+		bc.fill = GridBagConstraints.HORIZONTAL;
 		runit = new JButton("Run");
 		runit.setToolTipText("Control+R, F5, or F11");
 		runit.addActionListener(ae -> textEditor.runText());

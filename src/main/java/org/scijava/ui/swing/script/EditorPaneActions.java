@@ -69,7 +69,6 @@ public class EditorPaneActions extends RSyntaxTextAreaEditorKit {
 
 		final int defaultMod = RTextArea.getDefaultModifier();
 		final int shift = InputEvent.SHIFT_DOWN_MASK;
-		final int alt = InputEvent.ALT_DOWN_MASK;
 		final InputMap map = editorPane.getInputMap();
 
 		/*
@@ -91,11 +90,17 @@ public class EditorPaneActions extends RSyntaxTextAreaEditorKit {
 		map.put(KeyStroke.getKeyStroke(KeyEvent.VK_I, defaultMod), epaIncreaseIndentAction);
 		map.put(KeyStroke.getKeyStroke(KeyEvent.VK_I, defaultMod + shift), rstaDecreaseIndentAction);
 
+		// editing: override defaults for undo/redo/copy/cut/paste for consistency with menubar
+		map.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, defaultMod), copyAction);
+		map.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, defaultMod), pasteAction);
+		map.put(KeyStroke.getKeyStroke(KeyEvent.VK_X, defaultMod), cutAction);
+		map.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, defaultMod), rtaUndoAction);
+		map.put(KeyStroke.getKeyStroke(KeyEvent.VK_Y, defaultMod), rtaRedoAction); // this should be ctrl+shift+z!?
+
 		/*
 		 * see RSyntaxTextAreaDefaultInputMap and RTADefaultInputMap for other bindings.
 		 * Note that some of those bindings must be overridden in map.getParent()
 		 */
-
 
 		installCustomActions();
 	}
@@ -126,8 +131,7 @@ public class EditorPaneActions extends RSyntaxTextAreaEditorKit {
 
 		// actions that are not registered by default
 		map.put(rtaTimeDateAction, new TimeDateAction());
-		if (map.get(clipboardHistoryAction) != null)
-			map.put(clipboardHistoryAction, new ClipboardHistoryAction());
+		map.put(clipboardHistoryAction, new ClipboardHistoryActionImpl());
 		if (map.get(rstaCopyAsStyledTextAction) != null)
 			map.put(rstaCopyAsStyledTextAction, new CopyAsStyledTextAction());
 		if (map.get(rstaGoToMatchingBracketAction) != null)
@@ -138,7 +142,14 @@ public class EditorPaneActions extends RSyntaxTextAreaEditorKit {
 	public KeyStroke getAccelerator(final String actionID) {
 		final Action action = editorPane.getActionMap().get(actionID);
 		if (action == null) return null;
-		for (KeyStroke key: editorPane.getInputMap().allKeys()) {
+		// Pass 1: Current map, this should take precedence
+		for (final KeyStroke key: editorPane.getInputMap().keys()) {
+			if (actionID.equals(editorPane.getInputMap().get(key))) {
+				return key;
+			}
+		}
+		// Pass 2: All mappings, including parent map
+		for (final KeyStroke key: editorPane.getInputMap().allKeys()) {
 			if (actionID.equals(editorPane.getInputMap().get(key))) {
 				return key;
 			}
@@ -162,6 +173,23 @@ public class EditorPaneActions extends RSyntaxTextAreaEditorKit {
 		ToggleCommentAltAction() {
 			super();
 			setName(epaToggleCommentAltAction);
+		}
+	}
+
+
+	/* Variant of original action that does not allow pasting if textArea is locked */
+	static class ClipboardHistoryActionImpl extends ClipboardHistoryAction {
+
+		private static final long serialVersionUID = 1L;
+
+		@Override
+		public void actionPerformedImpl(ActionEvent e, RTextArea textArea) {
+			final boolean editingPossible = textArea.isEditable() && textArea.isEnabled();
+			if (!editingPossible) {
+				UIManager.getLookAndFeel().provideErrorFeedback(textArea);
+				return;
+			}
+			super.actionPerformedImpl(e, textArea);
 		}
 	}
 

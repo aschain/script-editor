@@ -10,8 +10,8 @@
 	</parent>
 
 	<artifactId>script-editor</artifactId>
-	<version>0.7.7-SNAPSHOT</version>
-	
+	<version>0.7.3-SNAPSHOT</version>
+
 	<name>SciJava Script Editor</name>
 	<description>Script Editor and Interpreter for SciJava script languages.</description>
 	<url>https://github.com/scijava/script-editor</url>
@@ -189,14 +189,6 @@
 			<artifactId>parsington</artifactId>
 			<scope>test</scope>
 		</dependency>
-		
-		<!-- For imagej1 macro installation -->
-		<dependency>
-			<groupId>net.imagej</groupId>
-			<artifactId>ij</artifactId>
-		</dependency>
-		<!-- imagej1 macro-->
-		
 		<dependency>
 			<groupId>org.scijava</groupId>
 			<artifactId>scijava-ui-swing</artifactId>
@@ -234,30 +226,4 @@
 			</properties>
 		</profile>
 	</profiles>
-	
-	<build>
-		<plugins>
-			<plugin>
-				<groupId>org.codehaus.mojo</groupId>
-				<artifactId>exec-maven-plugin</artifactId>
-				<executions>
-				  <execution>
-				  	<id>first-execution</id>
-				    <phase>install</phase>
-				    <goals>
-				       <goal>exec</goal>
-				    </goals>
-				    <configuration>
-				      <executable>bash</executable>
-				      <workingDirectory>${basedir}</workingDirectory>
-				      <arguments>
-				    	  <argument>-c</argument>
-				    	  <argument>echo -e $(../copyToFiji.sh jars ${project.artifactId} target/${project.build.finalName}.jar)</argument>
-				      </arguments>
-				    </configuration>
-				  </execution>
-				</executions>
-			</plugin>
-		</plugins>
-	</build>
 </project>

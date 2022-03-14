@@ -126,6 +126,7 @@ import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextPane;
+import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -181,6 +182,7 @@ import org.scijava.ui.swing.script.commands.KillScript;
 import org.scijava.util.FileUtils;
 import org.scijava.util.MiscUtils;
 import org.scijava.util.POM;
+import org.scijava.util.PlatformUtils;
 import org.scijava.util.Types;
 import org.scijava.widget.FileWidget;
 
@@ -247,7 +249,7 @@ public class TextEditor extends JFrame implements ActionListener,
 	private FindAndReplaceDialog findDialog;
 	private JCheckBoxMenuItem autoSave, wrapLines, tabsEmulated, autoImport,
 			autocompletion, fallbackAutocompletion, keylessAutocompletion,
-			markOccurences, paintTabs, whiteSpace, marginLine;
+			markOccurences, paintTabs, whiteSpace, marginLine, lockPane;
 	private ButtonGroup themeRadioGroup;
 	private JTextArea errorScreen = new JTextArea();
 
@@ -300,11 +302,13 @@ public class TextEditor extends JFrame implements ActionListener,
 	private boolean incremental = false;
 	private DragSource dragSource;
 	private boolean layoutLoading = true;
+	private OutlineTreePanel sourceTreePanel;
 
 	public static final ArrayList<TextEditor> instances = new ArrayList<>();
 	public static final ArrayList<Context> contexts = new ArrayList<>();
 
 	public TextEditor(final Context context) {
+
 		super("Script Editor");
 		instances.add(this);
 		contexts.add(context);
@@ -312,17 +316,12 @@ public class TextEditor extends JFrame implements ActionListener,
 		initializeTokenMakers();
 
 		// NB: All panes must be initialized before menus are assembled!
-		tabbed = new JTabbedPane();
+		tabbed = GuiUtils.getJTabbedPane();
 		tree = new FileSystemTree(log);
-		body = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, new FileSystemTreePanel(tree, context), tabbed);
-		try {// on Aqua L&F, 'one touch arrows' collide with borderless options button, which in turn are
-			// needed for proper resize of the search panel. Grrrrr....
-			if ("com.apple.laf.AquaLookAndFeel".equals(UIManager.getLookAndFeel().getClass().getName())) {
-				body.setOneTouchExpandable(false);
-			}
-		} catch (final Exception ignored) {
-			// do nothing
-		}
+		final JTabbedPane sideTabs = GuiUtils.getJTabbedPane();
+		sideTabs.addTab("File Explorer", new FileSystemTreePanel(tree, context));
+		sideTabs.addTab("Outline", sourceTreePanel = new OutlineTreePanel(this));
+		body = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sideTabs, tabbed);
 
 		// These items are dynamic and need to be initialized before EditorPane creation
 		initializeDynamicMenuComponents();
@@ -352,24 +351,25 @@ public class TextEditor extends JFrame implements ActionListener,
 		saveas = addToMenu(file, "Save As...", KeyEvent.VK_S, ctrl + shift);
 		saveas.setMnemonic(KeyEvent.VK_A);
 		file.addSeparator();
-		makeJar = addToMenu(file, "Export as JAR", 0, 0);
+		makeJar = addToMenu(file, "Export as JAR...", 0, 0);
 		makeJar.setMnemonic(KeyEvent.VK_E);
-		makeJarWithSource = addToMenu(file, "Export as JAR (With Source)", 0, 0);
+		makeJarWithSource = addToMenu(file, "Export as JAR (With Source)...", 0, 0);
 		makeJarWithSource.setMnemonic(KeyEvent.VK_X);
 		file.addSeparator();
-		final JCheckBoxMenuItem lock = new JCheckBoxMenuItem("Lock (Make Read Only)");
-		file.add(lock);
-		lock.addActionListener( e -> {
-			if (lock.isSelected()) {
-				new SetReadOnlyAction().actionPerformedImpl(e, getTextArea());
+		lockPane  = new JCheckBoxMenuItem("Lock (Make Read Only)");
+		lockPane.setToolTipText("Protects file from accidental editing");
+		file.add(lockPane);
+		lockPane.addActionListener(e -> {
+			if (lockPane.isSelected()) {
+				new SetReadOnlyAction().actionPerformedImpl(e, getEditorPane());
 			} else {
-				new SetWritableAction().actionPerformedImpl(e, getTextArea());
+				new SetWritableAction().actionPerformedImpl(e, getEditorPane());
 			}
 		});
-		JMenuItem jmi = new JMenuItem("Revert");
+		JMenuItem jmi = new JMenuItem("Revert...");
 		jmi.addActionListener(e -> {
-			if (lock.isSelected()) {
-				error("File is locked (read only).");
+			if (getEditorPane().isLocked()) {
+				error("File is currently locked.");
 				return;
 			}
 			final File f = getEditorPane().getFile();
@@ -407,8 +407,7 @@ public class TextEditor extends JFrame implements ActionListener,
 
 		// -- Language menu --
 
-		languageMenuItems =
-			new LinkedHashMap<>();
+		languageMenuItems = new LinkedHashMap<>();
 		final Set<Integer> usedShortcuts = new HashSet<>();
 		final JMenu languages = new JMenu("Language");
 		languages.setMnemonic(KeyEvent.VK_L);
@@ -503,7 +502,7 @@ public class TextEditor extends JFrame implements ActionListener,
 
 		toolsMenu = new JMenu("Tools");
 		toolsMenu.setMnemonic(KeyEvent.VK_O);
-		addMenubarSeparator(toolsMenu, "Imports:");
+		GuiUtils.addMenubarSeparator(toolsMenu, "Imports:");
 		addImport = addToMenu(toolsMenu, "Add Import...", 0, 0);
 		addImport.setMnemonic(KeyEvent.VK_I);
 		respectAutoImports = prefService.getBoolean(getClass(), AUTO_IMPORT_PREFS, false);
@@ -524,7 +523,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		sortImports = addToMenu(toolsMenu, "Sort Imports", 0, 0);
 		sortImports.setMnemonic(KeyEvent.VK_S);
 
-		addMenubarSeparator(toolsMenu, "Source & APIs:");
+		GuiUtils.addMenubarSeparator(toolsMenu, "Source & APIs:");
 		extractSourceJar = addToMenu(toolsMenu, "Extract Source Jar...", 0, 0);
 		extractSourceJar.setMnemonic(KeyEvent.VK_E);
 		openSourceForClass = addToMenu(toolsMenu, "Open Java File for Class...", 0, 0);
@@ -553,9 +552,9 @@ public class TextEditor extends JFrame implements ActionListener,
 		// -- Window Menu (previously labeled as Tabs menu --
 		tabsMenu = new JMenu("Window");
 		tabsMenu.setMnemonic(KeyEvent.VK_W);
-		addMenubarSeparator(tabsMenu, "Panes:");
+		GuiUtils.addMenubarSeparator(tabsMenu, "Panes:");
 		// Assume initial status from prefs or panel visibility
-		final JCheckBoxMenuItem jcmi1 = new JCheckBoxMenuItem("File Explorer",
+		final JCheckBoxMenuItem jcmi1 = new JCheckBoxMenuItem("Side Pane",
 				prefService.getInt(getClass(), MAIN_DIV_LOCATION, body.getDividerLocation()) > 0
 						|| isLeftPaneExpanded(body));
 		jcmi1.addItemListener(e -> collapseSplitPane(0, !jcmi1.isSelected()));
@@ -582,7 +581,7 @@ public class TextEditor extends JFrame implements ActionListener,
 			}
 		});
 		tabsMenu.add(mi);
-		addMenubarSeparator(tabsMenu, "Tabs:");
+		GuiUtils.addMenubarSeparator(tabsMenu, "Tabs:");
 		nextTab = addToMenu(tabsMenu, "Next Tab", KeyEvent.VK_PAGE_DOWN, ctrl);
 		nextTab.setMnemonic(KeyEvent.VK_N);
 		previousTab =
@@ -599,7 +598,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		options.setMnemonic(KeyEvent.VK_O);
 
 		// Font adjustments
-		addMenubarSeparator(options, "Font:");
+		GuiUtils.addMenubarSeparator(options, "Font:");
 		decreaseFontSize =
 			addToMenu(options, "Decrease Font Size", KeyEvent.VK_MINUS, ctrl);
 		decreaseFontSize.setMnemonic(KeyEvent.VK_D);
@@ -633,7 +632,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		fontSizeMenu.add(chooseFontSize);
 		options.add(fontSizeMenu);
 
-		addMenubarSeparator(options, "Indentation:");
+		GuiUtils.addMenubarSeparator(options, "Indentation:");
 		tabsEmulated = new JCheckBoxMenuItem("Indent Using Spaces");
 		tabsEmulated.setMnemonic(KeyEvent.VK_S);
 		tabsEmulated.addItemListener(e -> setTabsEmulated(tabsEmulated.getState()));
@@ -660,7 +659,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		replaceSpacesWithTabs = addToMenu(options, "Replace Spaces With Tabs", 0, 0);
 		replaceTabsWithSpaces = addToMenu(options, "Replace Tabs With Spaces", 0, 0);
 
-		addMenubarSeparator(options, "View:");
+		GuiUtils.addMenubarSeparator(options, "View:");
 		options.add(markOccurences);
 		options.add(paintTabs);
 		options.add(marginLine);
@@ -668,7 +667,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		options.add(wrapLines);
 		options.add(applyThemeMenu());
 
-		addMenubarSeparator(options, "Code Completions:");
+		GuiUtils.addMenubarSeparator(options, "Code Completions:");
 		options.add(autocompletion);
 		options.add(keylessAutocompletion);
 		options.add(fallbackAutocompletion);
@@ -680,8 +679,14 @@ public class TextEditor extends JFrame implements ActionListener,
 
 		// -- END MENUS --
 
-		// Add the editor and output area
+		// add tab-related listeners
 		tabbed.addChangeListener(this);
+		sideTabs.addChangeListener(e -> {
+			if (sideTabs.getSelectedIndex() == 1)
+				sourceTreePanel.rebuildSourceTree(getTab(tabbed.getSelectedIndex()).editorPane);
+		});
+
+		// Add the editor and output area
 		new FileDrop(tabbed, files -> {
 			final ArrayList<File> filteredFiles = new ArrayList<>();
 			assembleFlatFileCollection(filteredFiles, files);
@@ -743,45 +748,6 @@ public class TextEditor extends JFrame implements ActionListener,
 			if (JOptionPane.OK_OPTION == choice) {
 				open(f);
 			}
-		});
-
-		// Tweaks for tabbed pane
-		final JPopupMenu popup = new JPopupMenu();
-		tabbed.setComponentPopupMenu(popup);
-		final ButtonGroup bGroup = new ButtonGroup();
-		for (final String pos : new String[] { "Top", "Left", "Bottom", "Right" }) {
-			final JMenuItem jcbmi = new JCheckBoxMenuItem("Place on " + pos, "Top".equals(pos));
-			jcbmi.addItemListener(e -> {
-				switch (pos) {
-				case "Top":
-					tabbed.setTabPlacement(JTabbedPane.TOP);
-					break;
-				case "Bottom":
-					tabbed.setTabPlacement(JTabbedPane.BOTTOM);
-					break;
-				case "Left":
-					tabbed.setTabPlacement(JTabbedPane.LEFT);
-					break;
-				case "Right":
-					tabbed.setTabPlacement(JTabbedPane.RIGHT);
-					break;
-				}
-			});
-			bGroup.add(jcbmi);
-			popup.add(jcbmi);
-		}
-		tabbed.addMouseWheelListener(e -> {
-			//https://stackoverflow.com/a/38463104
-			final JTabbedPane pane = (JTabbedPane) e.getSource();
-			final int units = e.getWheelRotation();
-			final int oldIndex = pane.getSelectedIndex();
-			final int newIndex = oldIndex + units;
-			if (newIndex < 0)
-				pane.setSelectedIndex(0);
-			else if (newIndex >= pane.getTabCount())
-				pane.setSelectedIndex(pane.getTabCount() - 1);
-			else
-				pane.setSelectedIndex(newIndex);
 		});
 		getContentPane().add(body);
 
@@ -861,7 +827,7 @@ public class TextEditor extends JFrame implements ActionListener,
 
 		final EditorPane editorPane = getEditorPane();
 		// If dark L&F and using the default theme, assume 'dark' theme
-		applyTheme((isDarkLaF() && "default".equals(editorPane.themeName())) ? "dark" : editorPane.themeName());
+		applyTheme((GuiUtils.isDarkLaF() && "default".equals(editorPane.themeName())) ? "dark" : editorPane.themeName());
 		// Ensure font sizes are consistent across all panels
 		setFontSize(getEditorPane().getFontSize());
 		// Ensure menu commands are up-to-date
@@ -881,10 +847,10 @@ public class TextEditor extends JFrame implements ActionListener,
 		selectAll = addToMenu(editMenu, "Select All", KeyEvent.VK_A, ctrl);
 		cut = addToMenu(editMenu, "Cut", KeyEvent.VK_X, ctrl);
 		copy = addToMenu(editMenu, "Copy", KeyEvent.VK_C, ctrl);
-		addMappedActionToMenu(editMenu, "Copy as Styled Text", EditorPaneActions.rstaCopyAsStyledTextAction);
+		addMappedActionToMenu(editMenu, "Copy as Styled Text", EditorPaneActions.rstaCopyAsStyledTextAction, false);
 		paste = addToMenu(editMenu, "Paste", KeyEvent.VK_V, ctrl);
-		addMappedActionToMenu(editMenu, "Paste from History...", EditorPaneActions.clipboardHistoryAction);
-		addMenubarSeparator(editMenu, "Find:");
+		addMappedActionToMenu(editMenu, "Paste from History...", EditorPaneActions.clipboardHistoryAction, true);
+		GuiUtils.addMenubarSeparator(editMenu, "Find:");
 		find = addToMenu(editMenu, "Find/Replace...", KeyEvent.VK_F, ctrl);
 		find.setMnemonic(KeyEvent.VK_F);
 		findNext = addToMenu(editMenu, "Find Next", KeyEvent.VK_F3, 0);
@@ -892,15 +858,16 @@ public class TextEditor extends JFrame implements ActionListener,
 		findPrevious = addToMenu(editMenu, "Find Previous", KeyEvent.VK_F3, shift);
 		findPrevious.setMnemonic(KeyEvent.VK_P);
 
-		addMenubarSeparator(editMenu, "Goto:");
+		GuiUtils.addMenubarSeparator(editMenu, "Goto:");
 		gotoLine = addToMenu(editMenu, "Goto Line...", KeyEvent.VK_G, ctrl);
 		gotoLine.setMnemonic(KeyEvent.VK_G);
-		addMappedActionToMenu(editMenu, "Goto Matching Bracket", EditorPaneActions.rstaGoToMatchingBracketAction);
+		addMappedActionToMenu(editMenu, "Goto Matching Bracket", EditorPaneActions.rstaGoToMatchingBracketAction, false);
 
 		final JMenuItem gotoType = new JMenuItem("Goto Type...");
-		gotoType.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_G, ctrl + shift)); // default is Ctrl+Shift+O
-		gotoType.setToolTipText(
-				"Alternative shortcut: " + getEditorPane().getPaneActions().getAcceleratorLabel("GoToType"));
+		// we could retrieve the accelerator from paneactions but this may not work, if e.g., an
+		// unsupported syntax (such IJM) has been opened at startup, so we'll just specify it manually
+		//gotoType.setAccelerator(getEditorPane().getPaneActions().getAccelerator("GoToType"));
+		gotoType.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, ctrl + shift));
 		gotoType.addActionListener(e -> {
 			try {
 				getTextArea().getActionMap().get("GoToType").actionPerformed(e);
@@ -910,11 +877,11 @@ public class TextEditor extends JFrame implements ActionListener,
 		});
 		editMenu.add(gotoType);
 
-		addMenubarSeparator(editMenu, "Bookmarks:");
-		addMappedActionToMenu(editMenu, "Next Bookmark", EditorPaneActions.rtaNextBookmarkAction);
-		addMappedActionToMenu(editMenu, "Previous Bookmark", EditorPaneActions.rtaPrevBookmarkAction);
+		GuiUtils.addMenubarSeparator(editMenu, "Bookmarks:");
+		addMappedActionToMenu(editMenu, "Next Bookmark", EditorPaneActions.rtaNextBookmarkAction, false);
+		addMappedActionToMenu(editMenu, "Previous Bookmark", EditorPaneActions.rtaPrevBookmarkAction, false);
 		final JMenuItem toggB = addMappedActionToMenu(editMenu, "Toggle Bookmark",
-				EditorPaneActions.rtaToggleBookmarkAction);
+				EditorPaneActions.rtaToggleBookmarkAction, false);
 		toggB.setToolTipText("Alternatively, click on left bookmark gutter near the line number");
 		final JMenuItem listBookmarks = addToMenu(editMenu, "List Bookmarks...", 0, 0);
 		listBookmarks.setMnemonic(KeyEvent.VK_L);
@@ -922,21 +889,25 @@ public class TextEditor extends JFrame implements ActionListener,
 		final JMenuItem clearBookmarks = addToMenu(editMenu, "Clear Bookmarks...", 0, 0);
 		clearBookmarks.addActionListener(e -> clearAllBookmarks());
 
-		addMenubarSeparator(editMenu, "Utilities:");
+		GuiUtils.addMenubarSeparator(editMenu, "Utilities:");
 		final JMenuItem commentJMI = addMappedActionToMenu(editMenu, "Toggle Comment",
-				EditorPaneActions.rstaToggleCommentAction);
+				EditorPaneActions.rstaToggleCommentAction, true);
 		commentJMI.setToolTipText("Alternative shortcut: "
 				+ getEditorPane().getPaneActions().getAcceleratorLabel(EditorPaneActions.epaToggleCommentAltAction));
-		addMappedActionToMenu(editMenu, "Insert Time Stamp", EditorPaneActions.rtaTimeDateAction);
+		addMappedActionToMenu(editMenu, "Insert Time Stamp", EditorPaneActions.rtaTimeDateAction, true);
 		removeTrailingWhitespace = addToMenu(editMenu, "Remove Trailing Whitespace", 0, 0);
 		zapGremlins = addToMenu(editMenu, "Zap Gremlins", 0, 0);
 		zapGremlins.setToolTipText("Removes invalid (non-printable) ASCII characters");
 	}
 
 	private void addScritpEditorMacroCommands(final JMenu menu) {
-		addMenubarSeparator(menu, "Script Editor Macros:");
+		GuiUtils.addMenubarSeparator(menu, "Script Editor Macros:");
 		final JMenuItem startMacro = new JMenuItem("Start/Resume Macro Recording");
 		startMacro.addActionListener(e -> {
+			if (getEditorPane().isLocked()) {
+				error("File is currently locked.");
+				return;
+			}
 			final String state = (RTextArea.getCurrentMacro() == null) ? "on" : "resumed";
 			write("Script Editor: Macro recording " + state);
 			RTextArea.beginRecordingMacro();
@@ -987,6 +958,10 @@ public class TextEditor extends JFrame implements ActionListener,
 		final JMenuItem playMacro = new JMenuItem("Run Recorded Macro");
 		playMacro.setToolTipText("Runs current recordings. Prompts for\nrecordings file if no recordings exist");
 		playMacro.addActionListener(e -> {
+			if (getEditorPane().isLocked()) {
+				error("File is currently locked.");
+				return;
+			}
 			if (null == RTextArea.getCurrentMacro()) {
 				final File fileToOpen = getMacroFile(true);
 				if (fileToOpen != null) {
@@ -1389,15 +1364,20 @@ public class TextEditor extends JFrame implements ActionListener,
 		return item;
 	}
 
-	private JMenuItem addMappedActionToMenu(final JMenu menu, String label, String actionID) {
+	private JMenuItem addMappedActionToMenu(final JMenu menu, String label, String actionID, final boolean editingAction) {
 		final JMenuItem jmi = new JMenuItem(label);
 		jmi.addActionListener(e -> {
-			if (RTextAreaEditorKit.clipboardHistoryAction.equals(actionID)
-					&& ClipboardHistory.get().getHistory().isEmpty()) {
-				warn("The internal clipboard manager is empty.");
-				return;
-			}
 			try {
+				if (editingAction && getEditorPane().isLocked()) {
+					warn("File is currently locked.");
+					return;
+				}
+				if (RTextAreaEditorKit.clipboardHistoryAction.equals(actionID)
+						&& ClipboardHistory.get().getHistory().isEmpty()) {
+					warn("The internal clipboard manager is empty.");
+					return;
+				}
+				getTextArea().requestFocusInWindow();
 				getTextArea().getActionMap().get(actionID).actionPerformed(e);
 			} catch (final Exception | Error ignored) {
 				error("\"" + label + "\" not availabe for current scripting language.");
@@ -1683,11 +1663,7 @@ public class TextEditor extends JFrame implements ActionListener,
 			if (index > 0) index--;
 			switchTo(index);
 		}
-		else if (source == cut) getTextArea().cut();
 		else if (source == copy) getTextArea().copy();
-		else if (source == paste) getTextArea().paste();
-		else if (source == undo) getTextArea().undoLastAction();
-		else if (source == redo) getTextArea().redoLastAction();
 		else if (source == find) findOrReplace(true);
 		else if (source == findNext) {
 			findDialog.setRestrictToConsole(false);
@@ -1708,21 +1684,6 @@ public class TextEditor extends JFrame implements ActionListener,
 		else if (source == chooseTabSize) {
 			commandService.run(ChooseTabSize.class, true, "editor", this);
 		}
-		else if (source == addImport) {
-			addImport(getSelectedClassNameOrAsk("Add import (complete qualified name of class/package)",
-					"Which Class to Import?"));
-		}
-		else if (source == removeUnusedImports) new TokenFunctions(getTextArea())
-			.removeUnusedImports();
-		else if (source == sortImports) new TokenFunctions(getTextArea())
-			.sortImports();
-		else if (source == removeTrailingWhitespace) new TokenFunctions(
-			getTextArea()).removeTrailingWhitespace();
-		else if (source == replaceTabsWithSpaces) getTextArea()
-			.convertTabsToSpaces();
-		else if (source == replaceSpacesWithTabs) getTextArea()
-			.convertSpacesToTabs();
-		else if (source == zapGremlins) zapGremlins();
 		else if (source == openClassOrPackageHelp) openClassOrPackageHelp(null);
 		else if (source == extractSourceJar) extractSourceJar();
 		else if (source == openSourceForClass) {
@@ -1771,6 +1732,36 @@ public class TextEditor extends JFrame implements ActionListener,
 		else if (source == nextTab) switchTabRelative(1);
 		else if (source == previousTab) switchTabRelative(-1);
 		else if (handleTabsMenu(source)) return;
+		else {
+			// commands that should not run when files are locked!
+			if (getEditorPane().isLocked()) {
+				error("File is currently locked.");
+				return;
+			}
+			if (source == cut)
+				getTextArea().cut();
+			else if (source == paste)
+				getTextArea().paste();
+			else if (source == undo)
+				getTextArea().undoLastAction();
+			else if (source == redo)
+				getTextArea().redoLastAction();
+			else if (source == addImport) {
+				addImport(getSelectedClassNameOrAsk("Add import (complete qualified name of class/package)",
+						"Which Class to Import?"));
+			} else if (source == removeUnusedImports)
+				new TokenFunctions(getTextArea()).removeUnusedImports();
+			else if (source == sortImports)
+				new TokenFunctions(getTextArea()).sortImports();
+			else if (source == removeTrailingWhitespace)
+				new TokenFunctions(getTextArea()).removeTrailingWhitespace();
+			else if (source == replaceTabsWithSpaces)
+				getTextArea().convertTabsToSpaces();
+			else if (source == replaceSpacesWithTabs)
+				getTextArea().convertSpacesToTabs();
+			else if (source == zapGremlins)
+				zapGremlins();
+		}
 	}
 
 	private void setAutoCompletionEnabled(final boolean enabled) {
@@ -1957,6 +1948,7 @@ public class TextEditor extends JFrame implements ActionListener,
 			return;
 		}
 		final EditorPane editorPane = getEditorPane(index);
+		lockPane.setSelected(editorPane.isLocked());
 		editorPane.requestFocus();
 		checkForOutsideChanges();
 
@@ -1978,10 +1970,10 @@ public class TextEditor extends JFrame implements ActionListener,
 
 		// override search pattern only if
 		// there is sth. selected
-		final String selection = getTextArea().getSelectedText();
+		final String selection = getEditorPane().getSelectedText();
 		if (selection != null) findDialog.setSearchPattern(selection);
 
-		findDialog.show(doReplace);
+		findDialog.show(doReplace && !getEditorPane().isLocked());
 	}
 
 	public void gotoLine() {
@@ -2023,7 +2015,7 @@ public class TextEditor extends JFrame implements ActionListener,
 
 	public void listBookmarks() {
 		final Vector<Bookmark> bookmarks = getAllBookmarks();
-		if (!getAllBookmarks().isEmpty()) {
+		if (!bookmarks.isEmpty()) {
 			new BookmarkDialog(this, bookmarks).setVisible(true);
 		}
 	}
@@ -2098,20 +2090,24 @@ public class TextEditor extends JFrame implements ActionListener,
 	}
 
 	/**
-	 * Open a new tab with some content; the languageExtension is like ".java",
-	 * ".py", etc.
+	 * Opens a new tab with some content.
+	 * 
+	 * @param content           the script content
+	 * @param languageExtension the file extension associated with the content's
+	 *                          language (e.g., ".java", ".py", etc.
+	 * @return the text editor tab
 	 */
-	public TextEditorTab newTab(final String content, final String language) {
-		String lang = language;
+	public TextEditorTab newTab(final String content, final String languageExtension) {
+		String lang = languageExtension;
 		final TextEditorTab tab = open(null);
 		if (null != lang && lang.length() > 0) {
 			lang = lang.trim().toLowerCase();
 
 			if ('.' != lang.charAt(0)) {
-				lang = "." + language;
+				lang = "." + languageExtension;
 			}
 
-			tab.editorPane.setLanguage(scriptService.getLanguageByName(language));
+			tab.editorPane.setLanguage(scriptService.getLanguageByName(languageExtension));
 		} else {
 			final String lastLanguageName = prefService.get(getClass(), LAST_LANGUAGE);
 			if (null != lastLanguageName && "none" != lastLanguageName)
@@ -2145,12 +2141,12 @@ public class TextEditor extends JFrame implements ActionListener,
 				tab = new TextEditorTab(this);
 				context.inject(tab.editorPane);
 				tab.editorPane.loadPreferences();
-				tab.editorPane.getDocument().addDocumentListener(this);
 				addDefaultAccelerators(tab.editorPane);
 			} else {
-				// the Edit menu can only be populated after an editor
-				// pane exists, as it reads actions from its input map
-				assembleEditMenu();
+				// the Edit menu can only be populated after an editor pane exists, as it reads
+				// actions from its input map. We will built it here, if it has not been assembled
+				// yet.
+				if (undo == null) assembleEditMenu();
 			}
 			synchronized (tab.editorPane) { // tab is never null at this location.
 				tab.editorPane.open(file);
@@ -2185,16 +2181,17 @@ public class TextEditor extends JFrame implements ActionListener,
 			}
 
 			updateLanguageMenu(tab.editorPane.getCurrentLanguage());
-
+			tab.editorPane.getDocument().addDocumentListener(this);
+			tab.editorPane.requestFocusInWindow();
 			return tab;
 		}
 		catch (final FileNotFoundException e) {
 			log.error(e);
-			error("The file '" + file + "' was not found.");
+			error("The file\n'" + file + "' was not found.");
 		}
 		catch (final Exception e) {
 			log.error(e);
-			error("There was an error while opening '" + file + "': " + e);
+			error("There was an error while opening\n'" + file + "': " + e);
 		}
 		return null;
 	}
@@ -2401,25 +2398,25 @@ public class TextEditor extends JFrame implements ActionListener,
 		runSelection.setEnabled(isRunnable && !isCompileable);
 		compile.setEnabled(isCompileable);
 		autoSave.setEnabled(isCompileable);
-		makeJar.setEnabled(isCompileable);
-		makeJarWithSource.setEnabled(isCompileable);
-
-		final boolean isJava =
-			language != null && language.getLanguageName().equals("Java");
-		addImport.setEnabled(isJava);
-		removeUnusedImports.setEnabled(isJava);
-		sortImports.setEnabled(isJava);
-		//openSourceForMenuItem.setEnabled(isJava);
-
-		final boolean isMacro =
-			language != null && (language.getLanguageName().equals("IJ1 Macro") || language.getLanguageName().equals("ImageJ Macro"));
-		openMacroFunctions.setEnabled(isMacro);
-		openSourceForClass.setEnabled(!isMacro);
-
+			makeJar.setEnabled(isCompileable);
+			makeJarWithSource.setEnabled(isCompileable);
+	
+			final boolean isJava =
+				language != null && language.getLanguageName().equals("Java");
+			addImport.setEnabled(isJava);
+			removeUnusedImports.setEnabled(isJava);
+			sortImports.setEnabled(isJava);
+			//openSourceForMenuItem.setEnabled(isJava);
+	
+			final boolean isMacro =
+					language != null && (language.getLanguageName().equals("IJ1 Macro") || language.getLanguageName().equals("ImageJ Macro"));
+			openMacroFunctions.setEnabled(isMacro);
+			openSourceForClass.setEnabled(!isMacro);
+	
 		openHelp.setEnabled(!isMacro && isRunnable);
 		openHelpWithoutFrames.setEnabled(!isMacro && isRunnable);
-		nextError.setEnabled(!isMacro && isRunnable);
-		previousError.setEnabled(!isMacro && isRunnable);
+			nextError.setEnabled(!isMacro && isRunnable);
+			previousError.setEnabled(!isMacro && isRunnable);
 
 		final boolean isInGit = getEditorPane().getGitDirectory() != null;
 		gitMenu.setVisible(isInGit);
@@ -2437,9 +2434,9 @@ public class TextEditor extends JFrame implements ActionListener,
 
 	public void updateUI(final boolean setByLanguage) {
 		final EditorPane pane = getEditorPane();
-		if (pane.getCurrentLanguage() == null) return;
+		//if (pane.getCurrentLanguage() == null) return;
 
-		if (setByLanguage) {
+		if (setByLanguage && pane.getCurrentLanguage() != null) {
 			if (pane.getCurrentLanguage().getLanguageName().equals("Python")) {
 				pane.setTabSize(4);
 			}
@@ -2490,6 +2487,7 @@ public class TextEditor extends JFrame implements ActionListener,
 		autocompletion.setState(pane.isAutoCompletionEnabled());
 		fallbackAutocompletion.setState(pane.isAutoCompletionFallbackEnabled());
 		keylessAutocompletion.setState(pane.isAutoCompletionKeyless());
+		sourceTreePanel.rebuildSourceTree(pane);
 	}
 
 	public void setEditorPaneFileName(final String baseName) {
@@ -3023,15 +3021,17 @@ public class TextEditor extends JFrame implements ActionListener,
 		ExceptionHandler.addThread(Thread.currentThread(), this);
 	}
 
-	public void markCompileEnd() {
+	public void markCompileEnd() { // this naming is not-intuitive at all!
 		if (errorHandler == null) {
 			errorHandler =
 				new ErrorHandler(getCurrentLanguage(), errorScreen,
 					compileStartPosition.getOffset());
 			if (errorHandler.getErrorCount() > 0) getTab().showErrors();
 		}
-		if (compileStartOffset != errorScreen.getDocument().getLength()) getTab()
-			.showErrors();
+		if (getEditorPane().getErrorHighlighter().isLogDetailed() &&
+				compileStartOffset != errorScreen.getDocument().getLength()) {
+			getTab().showErrors();
+		}
 		if (getTab().showingErrors) {
 			errorHandler.scrollToVisible(compileStartOffset);
 		}
@@ -3101,10 +3101,14 @@ public class TextEditor extends JFrame implements ActionListener,
 
 	private void removeTab(final int index) {
 		final int menuItemIndex = index + tabsMenuTabsStart;
-
-		tabbed.remove(index);
-		tabsMenuItems.remove(tabsMenu.getItem(menuItemIndex));
-		tabsMenu.remove(menuItemIndex);
+		try {
+			tabbed.remove(index);
+			tabsMenuItems.remove(tabsMenu.getItem(menuItemIndex));
+			tabsMenu.remove(menuItemIndex);
+		} catch (final IndexOutOfBoundsException e) {
+			// this should never happen!?
+			log.debug(e);
+		}
 	}
 
 	boolean editorPaneContainsFile(final EditorPane editorPane, final File file) {
@@ -3392,8 +3396,8 @@ public class TextEditor extends JFrame implements ActionListener,
 
 	public void handleException(final Throwable e) {
 		handleException(e, errorScreen);
-		getTab().showErrors();
 		getEditorPane().getErrorHighlighter().parse(e);
+		getTab().showErrors();
 	}
 
 	public static void
@@ -3732,7 +3736,7 @@ public class TextEditor extends JFrame implements ActionListener,
 
 	private JMenu helpMenu() {
 		final JMenu menu = new JMenu("Help");
-		addMenubarSeparator(menu, "Offline Help:");
+		GuiUtils.addMenubarSeparator(menu, "Offline Help:");
 		JMenuItem item = new JMenuItem("List Shortcuts...");
 		item.addActionListener(e -> displayKeyMap());
 		menu.add(item);
@@ -3755,14 +3759,14 @@ public class TextEditor extends JFrame implements ActionListener,
 				+ "</ul>");
 		});
 		menu.add(item);
-		addMenubarSeparator(menu, "Contextual Help:");
+		GuiUtils.addMenubarSeparator(menu, "Contextual Help:");
 		menu.add(openHelpWithoutFrames);
 		openHelpWithoutFrames.setMnemonic(KeyEvent.VK_O);
 		menu.add(openHelp);
 		openClassOrPackageHelp = addToMenu(menu, "Lookup Class or Package...", 0, 0);
 		openClassOrPackageHelp.setMnemonic(KeyEvent.VK_S);
 		menu.add(openMacroFunctions);
-		addMenubarSeparator(menu, "Online Resources:");
+		GuiUtils.addMenubarSeparator(menu, "Online Resources:");
 		menu.add(helpMenuItem("Image.sc Forum ", "https://forum.image.sc/"));
 		menu.add(helpMenuItem("ImageJ Search Portal", "https://search.imagej.net/"));
 		//menu.addSeparator();
@@ -3854,42 +3858,6 @@ public class TextEditor extends JFrame implements ActionListener,
 		jmc.addActionListener( e -> textArea.setLineWrap(jmc.isSelected()));
 	}
 
-	private static void addMenubarSeparator(final JMenu menu, final String header) {
-		if (menu.getMenuComponentCount() > 1) {
-			menu.addSeparator();
-		}
-		try { // on Aqua L&F the label is never rendered. It seems only menu items with an actual
-			// actionlistener are registered on the menubar!?
-			if ("com.apple.laf.AquaLookAndFeel".equals(UIManager.getLookAndFeel().getClass().getName())) {
-				final JMenuItem label = new JMenuItem("↓ " + header);
-				label.setEnabled(false);
-				label.setFont(label.getFont().deriveFont(Font.ITALIC)); // ignored
-				label.addActionListener(e ->  label.setActionCommand("dummy")); 
-				menu.add(label);
-			} else {
-				final JLabel label = new JLabel(header);
-				// label.setHorizontalAlignment(SwingConstants.LEFT);
-				label.setEnabled(false);
-				label.setForeground(getDisabledComponentColor());
-				menu.add(label);
-			}
-		} catch (final Exception ignored) {
-			// do nothing
-		}
-	}
-
-	static void addPopupMenuSeparator(final JPopupMenu menu, final String header) {
-		if (menu.getComponentCount() > 1) {
-			menu.addSeparator();
-		}
-		final JLabel label = new JLabel(header);
-		// label.setHorizontalAlignment(SwingConstants.LEFT);
-		label.setEnabled(false);
-		label.setForeground(getDisabledComponentColor());
-		menu.add(label);
-
-	}
-
 	private static Collection<File> assembleFlatFileCollection(final Collection<File> collection, final File[] files) {
 		if (files == null) return collection; // can happen while pressing 'Esc'!?
 		for (final File file : files) {
@@ -3903,18 +3871,136 @@ public class TextEditor extends JFrame implements ActionListener,
 		return collection;
 	}
 
-	private static Color getDisabledComponentColor() {
-		try {
-			return UIManager.getColor("MenuItem.disabledForeground");
-		} catch (final Exception ignored) {
-			return Color.GRAY;
+	protected static class GuiUtils {
+		private GuiUtils() {
 		}
-	}
 
-	private static boolean isDarkLaF() {
-		// see https://stackoverflow.com/a/3943023
-		final Color b = new JLabel().getBackground();
-		return (b.getRed()*0.299 + b.getGreen()*0.587 + b.getBlue() *0.114) < 186;
+		static void openTerminal(final File pwd) throws IOException, InterruptedException {
+			final String[] wrappedCommand;
+			final File dir = (pwd.isDirectory()) ? pwd : pwd.getParentFile();
+			if (PlatformUtils.isWindows()) {
+				// this should probably be replaced with powershell!?
+				wrappedCommand = new String[] { "cmd", "/c", "start", "/wait", "cmd.exe", "/K" };
+			} else if (PlatformUtils.isLinux()) {
+				// this will likely only work on debian-based distros
+				wrappedCommand = new String[] { "/usr/bin/x-terminal-emulator" };
+			} else if (PlatformUtils.isMac()) {
+				// On MacOS ProcessBuilder#directory() fails!? so we'll use applescript :)
+				wrappedCommand = new String[] { "osascript", "-e", //
+						"tell application \"Terminal\" to (do script \"cd '" + dir.getAbsolutePath() + "';clear\")" };
+			} else {
+				throw new IllegalArgumentException("Unsupported OS");
+			}
+			final ProcessBuilder pb = new ProcessBuilder(wrappedCommand);
+			pb.directory(dir); // does nothing on macOS !?
+			pb.start();
+		}
+
+		static void addMenubarSeparator(final JMenu menu, final String header) {
+			if (menu.getMenuComponentCount() > 1) {
+				menu.addSeparator();
+			}
+			try {
+				// on Aqua L&F (and other L&Fs on the Mac!?) the label is never rendered. It
+				// seems
+				// only menu items with an actual actionlistener are registered on the menubar!?
+				if (PlatformUtils.isMac()) {
+					final JMenuItem label = new JMenuItem("↓ " + header);
+					label.setEnabled(false);
+					label.setFont(label.getFont().deriveFont(Font.ITALIC)); // ignored
+					label.addActionListener(e -> label.setActionCommand("dummy-menu-bar-separator"));
+					menu.add(label);
+				} else {
+					final JLabel label = new JLabel(header);
+					// label.setHorizontalAlignment(SwingConstants.LEFT);
+					label.setEnabled(false);
+					label.setForeground(getDisabledComponentColor());
+					menu.add(label);
+				}
+			} catch (final Exception ignored) {
+				// do nothing
+			}
+		}
+
+		static void addPopupMenuSeparator(final JPopupMenu menu, final String header) {
+			if (menu.getComponentCount() > 1) {
+				menu.addSeparator();
+			}
+			final JLabel label = new JLabel(header);
+			// label.setHorizontalAlignment(SwingConstants.LEFT);
+			label.setEnabled(false);
+			label.setForeground(getDisabledComponentColor());
+			menu.add(label);
+
+		}
+
+		static Color getDisabledComponentColor() {
+			try {
+				return UIManager.getColor("MenuItem.disabledForeground");
+			} catch (final Exception ignored) {
+				return Color.GRAY;
+			}
+		}
+
+		static boolean isDarkLaF() {
+			// see https://stackoverflow.com/a/3943023
+			final Color b = new JLabel().getBackground();
+			return (b.getRed() * 0.299 + b.getGreen() * 0.587 + b.getBlue() * 0.114) < 186;
+		}
+
+		static void collapseAllTreeNodes(final JTree tree) {
+			final int row1 = (tree.isRootVisible()) ? 1 : 0;
+			for (int i = row1; i < tree.getRowCount(); i++)
+				tree.collapseRow(i);
+		}
+
+		static void expandAllTreeNodes(final JTree tree) {
+			for (int i = 0; i < tree.getRowCount(); i++)
+				tree.expandRow(i);
+		}
+
+		/* Tweaks for tabbed pane */
+		static JTabbedPane getJTabbedPane() {
+			final JTabbedPane tabbed = new JTabbedPane();
+			final JPopupMenu popup = new JPopupMenu();
+			tabbed.setComponentPopupMenu(popup);
+			final ButtonGroup bGroup = new ButtonGroup();
+			for (final String pos : new String[] { "Top", "Left", "Bottom", "Right" }) {
+				final JMenuItem jcbmi = new JCheckBoxMenuItem("Place on " + pos, "Top".equals(pos));
+				jcbmi.addItemListener(e -> {
+					switch (pos) {
+					case "Top":
+						tabbed.setTabPlacement(JTabbedPane.TOP);
+						break;
+					case "Bottom":
+						tabbed.setTabPlacement(JTabbedPane.BOTTOM);
+						break;
+					case "Left":
+						tabbed.setTabPlacement(JTabbedPane.LEFT);
+						break;
+					case "Right":
+						tabbed.setTabPlacement(JTabbedPane.RIGHT);
+						break;
+					}
+				});
+				bGroup.add(jcbmi);
+				popup.add(jcbmi);
+			}
+			tabbed.addMouseWheelListener(e -> {
+				// https://stackoverflow.com/a/38463104
+				final JTabbedPane pane = (JTabbedPane) e.getSource();
+				final int units = e.getWheelRotation();
+				final int oldIndex = pane.getSelectedIndex();
+				final int newIndex = oldIndex + units;
+				if (newIndex < 0)
+					pane.setSelectedIndex(0);
+				else if (newIndex >= pane.getTabCount())
+					pane.setSelectedIndex(pane.getTabCount() - 1);
+				else
+					pane.setSelectedIndex(newIndex);
+			});
+			return tabbed;
+		}
 	}
 
 }
