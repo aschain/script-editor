@@ -5,12 +5,12 @@
 	<parent>
 		<groupId>org.scijava</groupId>
 		<artifactId>pom-scijava</artifactId>
-		<version>33.1.0</version>
+		<version>33.2.0</version>
 		<relativePath />
 	</parent>
 
 	<artifactId>script-editor</artifactId>
-	<version>0.7.9-SNAPSHOT</version>
+	<version>0.7.10-SNAPSHOT</version>
 
 	<name>SciJava Script Editor</name>
 	<description>Script Editor and Interpreter for SciJava script languages.</description>
@@ -157,6 +157,10 @@
 		</dependency>
 		<dependency>
 			<groupId>org.scijava</groupId>
+			<artifactId>scijava-search</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.scijava</groupId>
 			<artifactId>scripting-java</artifactId>
 		</dependency>
 
@@ -164,10 +168,12 @@
 		<dependency>
 			<groupId>com.fifesoft</groupId>
 			<artifactId>rsyntaxtextarea</artifactId>
+			<version>3.3.0</version>
 		</dependency>
 		<dependency>
 			<groupId>com.fifesoft</groupId>
 			<artifactId>languagesupport</artifactId>
+			<version>3.3.0</version>
 		</dependency>
 		<dependency>
 			<groupId>com.miglayout</groupId>
@@ -206,6 +212,10 @@
 			<groupId>org.scijava</groupId>
 			<artifactId>scripting-groovy</artifactId>
 			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.formdev</groupId>
+			<artifactId>flatlaf</artifactId>
 		</dependency>
 	</dependencies>
 

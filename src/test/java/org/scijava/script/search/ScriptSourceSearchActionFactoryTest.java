@@ -6,13 +6,13 @@
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- * 
+ *
  * 1. Redistributions of source code must retain the above copyright notice,
  *    this list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
  *    and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -27,49 +27,50 @@
  * #L%
  */
 
-package org.scijava.ui.swing.script;
+package org.scijava.script.search;
 
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
-
-import javax.swing.SwingUtilities;
-
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 import org.scijava.Context;
-import org.scijava.script.ScriptLanguage;
-import org.scijava.script.ScriptService;
+import org.scijava.script.ScriptInfo;
+import org.scijava.search.SearchActionFactory;
+import org.scijava.search.SearchResult;
+import org.scijava.search.module.ModuleSearchResult;
+import org.scijava.ui.swing.script.search.ScriptSourceSearchActionFactory;
 
-import com.formdev.flatlaf.FlatDarkLaf;
-import com.formdev.flatlaf.FlatLightLaf;
+import java.io.StringReader;
+
+import static org.junit.Assert.assertTrue;
 
 /**
- * Main entry point for launching the script editor standalone.
+ * Basic regression test for {@link ScriptSourceSearchActionFactory}
  *
- * @author Johannes Schindelin
- * @author Curtis Rueden
+ * @author Gabriel Selzer
  */
-public final class Main {
+public class ScriptSourceSearchActionFactoryTest {
 
-	public static void launch(final String language) {
-		final Context context = new Context();
-		final TextEditor editor = new TextEditor(context);
-		final ScriptService scriptService = context.getService(ScriptService.class);
-		final ScriptLanguage lang = scriptService.getLanguageByName(language);
-		if (lang == null) {
-			throw new IllegalArgumentException("Script language '" + language +
-				"' not found");
-		}
-		editor.setLanguage(lang);
-		editor.addWindowListener(new WindowAdapter() {
-			@Override
-			public void windowClosed(final WindowEvent e) {
-				SwingUtilities.invokeLater(() -> context.dispose());
-			}
-		});
-		editor.setVisible(true);
+	private Context context;
+	private final SearchActionFactory factory =
+			new ScriptSourceSearchActionFactory();
+
+	// -- Test setup --
+
+	@Before public void setUp() {
+		context = new Context();
 	}
-	public static void main(String[] args) throws Exception {
-		FlatDarkLaf.setup();
-		String lang = args.length == 0 ? "Java" : args[0];
-		launch(lang);
+
+	@After public void tearDown() {
+		context.dispose();
 	}
+
+	@Test public void testScriptSourceAction()
+	{
+		final String script = "\"Hello World!\"\n";
+		final StringReader reader = new StringReader(script);
+		final ScriptInfo info = new ScriptInfo(context, "test.groovy", reader);
+		final SearchResult searchResult = new ModuleSearchResult(info, "");
+		assertTrue(factory.supports(searchResult));
+	}
+
 }
