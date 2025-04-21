@@ -2,7 +2,7 @@
  * #%L
  * Script Editor and Interpreter for SciJava script languages.
  * %%
- * Copyright (C) 2009 - 2023 SciJava developers.
+ * Copyright (C) 2009 - 2024 SciJava developers.
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -50,8 +50,7 @@ public class OutputPane extends JTextArea {
 
 	public OutputPane(final LogService log) {
 		this.log = log;
-		final Font font = new Font("Courier", Font.PLAIN, 12);
-		setFont(font);
+		setFont(new Font(Font.MONOSPACED, Font.PLAIN, getFont().getSize()));
 		setEditable(false);
 		setFocusable(true);
 		setLineWrap(true);
